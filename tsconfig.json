@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",                          /* Node.js moderno soporta ES2022 de forma nativa */
+    "module": "node16",                        /* Mantenemos CommonJS para compatibilidad con TypeORM */
+    "moduleResolution": "node16",
+    "lib": ["es2022"],                           /* Ya no necesitas "dom" en el backend */
+    "outDir": "./dist",                          /* Dónde se guardará el código JavaScript compilado */
+    "rootDir": "./src",                          /* Dónde está tu código TypeScript */
+    
+    /* Configuración Vital para TypeORM */
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    
+    /* Buenas prácticas y tipado estricto */
+    "strict": true,                              /* Activa strictNullChecks y otras validaciones clave */
+    "esModuleInterop": true,                     /* Permite importar paquetes CommonJS como si fueran ES Modules (ej: import express from 'express') */
+    "skipLibCheck": true,                        /* Evita comprobar errores de tipo en las librerías de node_modules */
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*"]                        /* Le dice a TS qué archivos debe compilar */
+}
