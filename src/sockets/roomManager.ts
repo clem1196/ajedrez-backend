@@ -15,6 +15,7 @@ interface Player {
   nick: string;
   color?: "w" | "b";
   isBot?: boolean;
+  elo?:number;
 }
 
 export interface GameRoom {
@@ -133,12 +134,14 @@ export class RoomManager {
       socketId: oldRoom.playerBlack.socketId,
       nick: oldRoom.playerBlack.nick,
       color: "w",
+      isBot: oldRoom.playerBlack.isBot,
     };
 
     const nextPlayerBlack: Player = {
       socketId: oldRoom.playerWhite.socketId,
       nick: oldRoom.playerWhite.nick,
       color: "b",
+      isBot: oldRoom.playerWhite.isBot,
     };
 
     const newRoomId = `room_rematch_${Date.now()}`;
@@ -174,18 +177,22 @@ export class RoomManager {
     return this.activeRooms.get(roomId);
   }
 
-  public removeRoom(roomId: string): void {
-    const room = this.activeRooms.get(roomId);
-    if (room) {
-      this.clearRoomTimers(room);
-      // ✅ Limpiar timer de reconexión
-      if (room._reconnectionTimer) {
-        clearTimeout(room._reconnectionTimer);
-        room._reconnectionTimer = undefined;
-      }
+// ✅ (clearRoomTimers o removeRoom)
+public removeRoom(roomId: string, botService?: any): void {
+  const room = this.activeRooms.get(roomId);
+  if (room) {
+    this.clearRoomTimers(room);
+    
+    // ✅ Limpiar timers de bots si existen en esta sala
+    if (room.playerWhite?.isBot && botService) {
+      botService.removeBot(roomId, room.playerWhite.socketId);
     }
-    this.activeRooms.delete(roomId);
+    if (room.playerBlack?.isBot && botService) {
+      botService.removeBot(roomId, room.playerBlack.socketId);
+    }
   }
+  this.activeRooms.delete(roomId);
+}
 
   public clearRoomTimers(room: GameRoom): void {
     if (room.timerInterval) {
@@ -278,38 +285,36 @@ export class RoomManager {
 
     return true;
   }
+  // ✅ CORREGIDO
   public createRoomWithBot(
-    socketId: string,
-    nick: string,
+    humanSocketId: string,
+    humanNick: string,
     minutes: number,
-    botNick: string,
-    botElo: number,
+    botPlayerData: Player, // ✅ Recibe el bot ya creado por BotService
   ): GameRoom | null {
     const timeInSeconds = minutes * 60;
     const roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
-    // ✅ El humano siempre juega contra el bot, el color es aleatorio
+    // El humano juega contra el bot, el color del humano es aleatorio (o fijo, según tu lógica)
     const isHumanWhite = Math.random() > 0.5;
-     const botId = `bot_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
     const humanPlayer: Player = {
-      socketId,
-      nick: nick.trim(),
+      socketId: humanSocketId,
+      nick: humanNick.trim(),
       color: isHumanWhite ? "w" : "b",
       isBot: false,
     };
 
-    const botPlayer: Player = {
-      socketId: botId,
-      nick: botNick,
+    // Asignamos el color opuesto al bot que ya nos pasaron
+    const finalBotPlayer: Player = {
+      ...botPlayerData,
       color: isHumanWhite ? "b" : "w",
-      isBot: true,
     };
 
     const newRoom: GameRoom = {
       roomId,
-      playerWhite: isHumanWhite ? humanPlayer : botPlayer,
-      playerBlack: isHumanWhite ? botPlayer : humanPlayer,
+      playerWhite: isHumanWhite ? humanPlayer : finalBotPlayer,
+      playerBlack: isHumanWhite ? finalBotPlayer : humanPlayer,
       chessInstance: new Chess(),
       whiteTime: timeInSeconds,
       blackTime: timeInSeconds,
@@ -327,7 +332,9 @@ export class RoomManager {
     };
 
     this.activeRooms.set(roomId, newRoom);
-    console.log(`🏠 Sala ${roomId} creada con bot para ${nick}`);
+    console.log(
+      `🏠 Sala ${roomId} creada: ${humanNick} vs ${finalBotPlayer.nick} (${finalBotPlayer.color === "w" ? "Blancas" : "Negras"})`,
+    );
     return newRoom;
   }
   // ✅ NUEVO: Marcar que un jugador reconectó

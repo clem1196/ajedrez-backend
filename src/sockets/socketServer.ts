@@ -10,6 +10,31 @@ import { createAdminRoutes } from "../routes/adminRoute";
 import { Application } from "express";
 
 const roomManager = new RoomManager();
+// ✅ Función para determinar si se debe crear un bot
+const shouldCreateBot = (queueSize: number): boolean => {
+  // ✅ Si los bots están desactivados globalmente
+  if (!BOT_CONFIG.ENABLED) {
+    console.log(`ℹ️ Bots desactivados globalmente`);
+    return false;
+  }
+
+  // ✅ Si hay suficientes jugadores en cola, no usar bots
+  if (queueSize >= BOT_CONFIG.MIN_PLAYERS_TO_DISABLE_BOTS) {
+    console.log(`👥 ${queueSize} jugadores en cola, no se necesita bot`);
+    return false;
+  }
+
+  // ✅ Probabilidad de crear bot (para situaciones mixtas)
+  const random = Math.random() * 100;
+  if (random > BOT_CONFIG.BOT_PROBABILITY) {
+    console.log(
+      `🎲 Probabilidad de bot: ${random}% > ${BOT_CONFIG.BOT_PROBABILITY}%, no se crea bot`,
+    );
+    return false;
+  }
+
+  return true;
+};
 
 export const initSocketServer = (server: HttpServer, app: Application) => {
   const io = new Server(server, {
@@ -19,7 +44,7 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
   const botService = new BotService(roomManager, io);
   // ✅ Registrar rutas de administración con las dependencias
   const adminRoutes = createAdminRoutes(roomManager, io, botService);
-  app.use('/api/admin', adminRoutes);
+  app.use("/api/admin", adminRoutes);
   setInterval(
     () => {
       botService.cleanupInactiveBots();
@@ -57,77 +82,66 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
           room = roomManager.addToGuestQueue(socket.id, finalNick, gameMinutes);
         }
 
-        // ✅ Si no se pudo crear sala (no hay oponente en cola), verificar si crear bot
-        if (!room) {
-          // ✅ Verificar si se debe crear un bot
-          if (shouldCreateBot(queueSize)) {
-            console.log(
-              `🤖 No hay oponentes disponibles, creando bot para ${finalNick}`,
-            );
+        // ✅ Si no hay oponente y la config permite bots, creamos la partida contra IA
+        if (!room && shouldCreateBot(queueSize)) {
+          console.log(
+            `🤖 No hay oponentes disponibles, creando bot para ${finalNick}`,
+          );
 
-            const botNames = [
-              "Bot_Master",
-              "Bot_Pro",
-              "Bot_Novato",
-              "Bot_Aprendiz",
-              "Bot_Estratega",
-              "Bot_Tactico",
-              "Bot_Peleon",
-              "Bot_Calmado",
-              "Bot_Rapido",
-              "Bot_Calculador",
-            ];
-            const botNick =
-              botNames[Math.floor(Math.random() * botNames.length)];
-            const botElo = 800 + Math.floor(Math.random() * 600);
+          // ✅ Obtener dificultad actual
+          const difficulty = BOT_CONFIG.DIFFICULTY || "easy";
 
-            // ✅ Crear sala con bot
-            room = roomManager.createRoomWithBot(
-              socket.id,
-              finalNick,
-              gameMinutes,
-              botNick,
-              botElo,
-            );
+          // ✅ Obtener nombre y Elo según dificultad
+          const botNick = botService.getRandomBotNameByDifficulty(difficulty);
+          const botElo = botService.getRandomEloByDifficulty(difficulty);
+          const tempBotId = `bot_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-            if (room) {
-              // ✅ Registrar el bot en el servicio
-              const botPlayer = room.playerWhite.isBot
-                ? room.playerWhite
-                : room.playerBlack;
+          const botData = {
+            socketId: tempBotId,
+            nick: botNick,
+            elo: botElo,
+            color: "w" as "w" | "b", // Se corregirá en RoomManager
+            isBot: true as const,
+          };
+          // ✅ Crear sala con bot
+          room = roomManager.createRoomWithBot(
+            socket.id,
+            finalNick,
+            gameMinutes,
+            botData,
+          );
 
-              if (botPlayer && botPlayer.isBot) {
-                botService.addBot({
-                  id: botPlayer.socketId,
-                  nick: botPlayer.nick,
-                  elo: botElo,
-                  color: botPlayer.color as "w" | "b",
-                  socketId: botPlayer.socketId,
-                  roomId: room.roomId,
-                });
+          if (room) {
+            // 3. Registramos el bot en el servicio con el ID que acabamos de crear
+            const actualBotPlayer = room.playerWhite.isBot
+              ? room.playerWhite
+              : room.playerBlack;
 
-                console.log(
-                  `🤖 Bot ${botPlayer.nick} (${botElo} Elo) registrado para sala ${room.roomId}`,
-                );
-
-                // ✅ Notificar al frontend
-                io.to(room.roomId).emit("bot_joined", {
-                  nick: botPlayer.nick,
-                  elo: botElo,
-                  color: botPlayer.color,
-                });
-              }
-            }
-          } else {
-            // ✅ Si no hay bot y no hay oponente, esperar en cola
-            console.log(`⏳ Esperando oponente real para ${finalNick}`);
-            // ✅ Agregar a la cola si no está ya
-            roomManager.addToGuestQueue(socket.id, finalNick, gameMinutes);
-            socket.emit("waiting_for_opponent", {
-              message: `Buscando oponente para ${gameMinutes} min...`,
+            botService.addBot({
+              id: actualBotPlayer.socketId,
+              nick: actualBotPlayer.nick,
+              elo: actualBotPlayer.elo || botElo,
+              color: actualBotPlayer.color as "w" | "b",
+              socketId: actualBotPlayer.socketId,
+              roomId: room.roomId,
+              difficulty: difficulty,
             });
-            return; // ✅ Salir para no continuar con la configuración de sala
+
+            io.to(room.roomId).emit("bot_joined", {
+              nick: actualBotPlayer.nick,
+              elo: actualBotPlayer.elo,
+              color: actualBotPlayer.color,
+              difficulty: difficulty,
+            });
           }
+        } else if (!room) {
+          // ✅ Si no hay bot y no hay oponente, esperar en cola
+          console.log(`⏳ Esperando oponente real para ${finalNick}`);
+          roomManager.addToGuestQueue(socket.id, finalNick, gameMinutes);
+          socket.emit("waiting_for_opponent", {
+            message: `Buscando oponente para ${gameMinutes} min...`,
+          });
+          return;
         }
 
         // ✅ Si hay sala (con bot o con oponente), configurar
@@ -360,7 +374,8 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
                 botElo = existingBot.elo;
               } else {
                 // ✅ Si no existe, usar un valor aleatorio
-                botElo = 800 + Math.floor(Math.random() * 600);
+                const difficulty = BOT_CONFIG.DIFFICULTY || "easy";
+                botElo = botService.getRandomEloByDifficulty(difficulty);
               }
               botService.addBot({
                 id: opponentPlayer.socketId,
@@ -369,7 +384,11 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
                 color: opponentColor as "w" | "b",
                 socketId: opponentPlayer.socketId,
                 roomId: roomId,
+                difficulty: BOT_CONFIG.DIFFICULTY || "easy",
               });
+              console.log(
+                `✅ Bot ${opponentPlayer.nick} recreado en sala ${roomId}`,
+              );
             }
           }
 
@@ -442,102 +461,59 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
     registerGameHandlers(io, socket, roomManager, botService); // ✅ PASAR botService
     // --- 🔌 DESCONEXIÓN ---
 
+    // En src/sockets/socketServer.ts (dentro de socket.on("disconnect"))
+
     socket.on("disconnect", async () => {
       console.log(`👋 Usuario desconectado: ${socket.id}`);
 
-      // 1. Quitar de la cola de espera (si estaba buscando partida)
+      // 1. Quitar de la cola de espera
       roomManager.removeFromQueue(socket.id);
+
       const activeRoom = roomManager.getRoomByPlayerId(socket.id);
       if (!activeRoom || activeRoom.isProcessingEnd || activeRoom.gameEnded) {
-        return;
-      }
-      // ✅ Si había un bot en la sala, eliminarlo
-      if (activeRoom.playerWhite?.isBot) {
-        botService.removeBot(
-          activeRoom.roomId,
-          activeRoom.playerWhite.socketId,
-        );
-      }
-      if (activeRoom.playerBlack?.isBot) {
-        botService.removeBot(
-          activeRoom.roomId,
-          activeRoom.playerBlack.socketId,
-        );
-      }
-      // ✅ Si había un bot en la sala, eliminarlo antes de pausar
-      const isWhiteBot = activeRoom.playerWhite?.isBot || false;
-      const isBlackBot = activeRoom.playerBlack?.isBot || false;
-
-      if (isWhiteBot && activeRoom.playerWhite) {
-        botService.removeBot(
-          activeRoom.roomId,
-          activeRoom.playerWhite.socketId,
-        );
-      }
-      if (isBlackBot && activeRoom.playerBlack) {
-        botService.removeBot(
-          activeRoom.roomId,
-          activeRoom.playerBlack.socketId,
-        );
+        return; // La partida ya terminó o no existe, no hacer nada
       }
 
-      // 3. ✅ PAUSAR LA PARTIDA (NO declarar abandono inmediato)
+      // 2. PAUSAR LA PARTIDA (El bot se queda intacto esperando)
       console.log(
-        `⏸️ Partida en sala ${activeRoom.roomId} pausada por desconexión de ${socket.id}`,
+        `⏸️ Partida en sala ${activeRoom.roomId} pausada por desconexión`,
       );
 
-      // Pausar el timer del juego
-      if (activeRoom.timerInterval) {
-        clearInterval(activeRoom.timerInterval);
-        activeRoom.timerInterval = undefined;
-      }
-
-      // Limpiar timers de AFK
       roomManager.clearRoomTimers(activeRoom);
-
-      // Marcar como pausada
       activeRoom.isPaused = true;
+
       const isWhite = activeRoom.playerWhite.socketId === socket.id;
       const disconnectedNick = isWhite
         ? activeRoom.playerWhite.nick
         : activeRoom.playerBlack.nick;
-      // Registrar la desconexión
+
       activeRoom.playerDisconnected = {
         socketId: socket.id,
         nick: disconnectedNick,
         disconnectedAt: Date.now(),
       };
 
-      // 4. Notificar al oponente que el jugador se desconectó
+      // 3. Notificar al oponente (si es un bot, el frontend lo manejará o simplemente ignorará el socket)
       const opponentId = isWhite
         ? activeRoom.playerBlack.socketId
         : activeRoom.playerWhite.socketId;
-
       io.to(opponentId).emit("player_disconnected", {
         message: `Tu oponente (${disconnectedNick}) se ha desconectado. Esperando reconexión...`,
         waitingTime: TIME_CONSTANTS.RECONNECTION_TIMEOUT,
       });
 
-      // 5. ✅ INICIAR TEMPORIZADOR DE ESPERA PARA RECONEXIÓN
+      // 4. Iniciar temporizador de abandono
       const reconnectionTimer = setTimeout(async () => {
-        // Verificar si el jugador ya reconectó
         const currentRoom = roomManager.getRoom(activeRoom.roomId);
-        if (!currentRoom) return;
-
-        // Si el jugador reconectó, cancelar el timer
-        if (!currentRoom.playerDisconnected) {
-          console.log(
-            `✅ Jugador reconectó antes del timeout en sala ${currentRoom.roomId}`,
-          );
-          return;
+        if (!currentRoom || !currentRoom.playerDisconnected) {
+          return; // Ya reconectó
         }
 
-        // Si pasó el tiempo y no reconectó → DECLARAR ABANDONO
         console.log(
-          `⏰ Tiempo de espera agotado para sala (${TIME_CONSTANTS.RECONNECTION_TIMEOUT}s) ara sala ${currentRoom.roomId}`,
+          `⏰ Tiempo de espera agotado en sala ${currentRoom.roomId}`,
         );
 
-        // Declarar victoria para el oponente
+        // Declarar victoria por abandono
         const disconnectedColor = isWhite ? "w" : "b";
         const winnerResult =
           disconnectedColor === "w" ? "black_win" : "white_win";
@@ -558,7 +534,6 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
               reason: "surrender",
             });
 
-          // ✅ Mensajes personalizados para cada jugador
           const winnerNick = isWhite
             ? currentRoom.playerBlack.nick
             : currentRoom.playerWhite.nick;
@@ -569,38 +544,21 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
           io.to(currentRoom.roomId).emit("game_over", {
             reason: "surrender",
             loserSocketId: socket.id,
-            message: `${loserNick} no reconectó a tiempo. Victoria por abandono.`,
+            message: `${loserNick} no reconectó a tiempo.`,
             whiteEloChange,
             blackEloChange,
-            winnerMessage: `🏆 Victoria! ${winnerNick} gana por abandono de ${loserNick}.`,
-            loserMessage: `💀 Derrota: ${loserNick} pierde por no reconectar a tiempo.`,
+            winnerMessage: `🏆 ¡Victoria! ${winnerNick} gana por abandono.`,
+            loserMessage: `💀 Derrota: ${loserNick} pierde por no reconectar.`,
           });
         } catch (error) {
-          console.error("❌ Error al procesar abandono por reconexión:", error);
+          console.error("❌ Error al procesar abandono:", error);
         } finally {
-          roomManager.removeRoom(currentRoom.roomId);
+          // ✅ AQUÍ SÍ eliminamos la sala y sus bots, porque la partida terminó definitivamente
+          roomManager.removeRoom(currentRoom.roomId, botService);
         }
-      }, TIME_CONSTANTS.RECONNECTION_TIMEOUT * 1000); // ✅ Usar constante en segundos
+      }, TIME_CONSTANTS.RECONNECTION_TIMEOUT * 1000);
 
-      // Guardar el timer para poder cancelarlo si reconecta
       activeRoom._reconnectionTimer = reconnectionTimer;
-      if (activeRoom) {
-        const isWhiteBot = activeRoom.playerWhite?.isBot || false;
-        const isBlackBot = activeRoom.playerBlack?.isBot || false;
-
-        if (isWhiteBot && activeRoom.playerWhite) {
-          botService.removeBot(
-            activeRoom.roomId,
-            activeRoom.playerWhite.socketId,
-          );
-        }
-        if (isBlackBot && activeRoom.playerBlack) {
-          botService.removeBot(
-            activeRoom.roomId,
-            activeRoom.playerBlack.socketId,
-          );
-        }
-      }
     });
   });
 };
@@ -769,29 +727,4 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
       blackTime: room.blackTime,
     });
   }, 1000); // ⏱️ 1 segundo = 1000ms
-};
-// ✅ Función para determinar si se debe crear un bot
-const shouldCreateBot = (queueSize: number): boolean => {
-  // ✅ Si los bots están desactivados globalmente
-  if (!BOT_CONFIG.ENABLED) {
-    console.log(`ℹ️ Bots desactivados globalmente`);
-    return false;
-  }
-
-  // ✅ Si hay suficientes jugadores en cola, no usar bots
-  if (queueSize >= BOT_CONFIG.MIN_PLAYERS_TO_DISABLE_BOTS) {
-    console.log(`👥 ${queueSize} jugadores en cola, no se necesita bot`);
-    return false;
-  }
-
-  // ✅ Probabilidad de crear bot (para situaciones mixtas)
-  const random = Math.random() * 100;
-  if (random > BOT_CONFIG.BOT_PROBABILITY) {
-    console.log(
-      `🎲 Probabilidad de bot: ${random}% > ${BOT_CONFIG.BOT_PROBABILITY}%, no se crea bot`,
-    );
-    return false;
-  }
-
-  return true;
 };

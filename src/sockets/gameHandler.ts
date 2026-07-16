@@ -271,7 +271,7 @@ export const registerGameHandlers = (
               botService.botMakeMove(roomId, nextTurnColor);
             }, 1500);
 
-            // ✅ SALIR PARA NO INICIAR TIMER AFK (los bots no necesitan AFK)
+            // ✅ SALIR ANTES DE INICIAR EL TIMER AFK
             return;
           }
 

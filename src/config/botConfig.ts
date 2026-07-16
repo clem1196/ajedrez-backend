@@ -12,3 +12,8 @@ export const BOT_CONFIG = {
   // ✅ Porcentaje de partidas que usan bots (0-100)
   BOT_PROBABILITY: parseInt(process.env.BOT_PROBABILITY || '100'),
 };
+// ✅ Función para actualizar configuración desde el panel admin
+export const updateBotConfig = (newConfig: Partial<typeof BOT_CONFIG>) => {
+  Object.assign(BOT_CONFIG, newConfig);
+  console.log(`🎛️ Configuración de bots actualizada:`, BOT_CONFIG);
+};
