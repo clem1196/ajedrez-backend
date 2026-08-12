@@ -20,6 +20,7 @@ interface Player {
 
 export interface GameRoom {
   roomId: string;
+  difficulty?: string;
   playerWhite: Player;
   playerBlack: Player;
   chessInstance: Chess;
@@ -284,8 +285,7 @@ public removeRoom(roomId: string, botService?: any): void {
     this.clearRoomTimers(room);
 
     return true;
-  }
-  // ✅ CORREGIDO
+  }  
   public createRoomWithBot(
     humanSocketId: string,
     humanNick: string,

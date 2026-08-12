@@ -162,23 +162,26 @@ export const registerGameHandlers = (
                 : room.playerBlack.nick;
 
             try {
-              const { whiteEloChange, blackEloChange } =
-                await EloService.processMatchEnd({
-                  roomId: room.roomId,
-                  whiteSocketId: room.playerWhite.socketId,
-                  blackSocketId: room.playerBlack.socketId,
-                  whiteNick: room.playerWhite.nick,
-                  blackNick: room.playerBlack.nick,
-                  result: winnerResult,
-                  reason: "checkmate",
-                });
+              const eloResult = await EloService.processMatchEnd({
+                roomId: room.roomId,
+                whiteSocketId: room.playerWhite.socketId,
+                blackSocketId: room.playerBlack.socketId,
+                whiteNick: room.playerWhite.nick,
+                blackNick: room.playerBlack.nick,
+                result: winnerResult,
+                reason: "checkmate",
+              });
 
               io.to(roomId).emit("game_over", {
                 reason: "checkmate",
                 loserSocketId,
                 message: `♟️ ¡Jaque Mate! ${winnerNick} gana la partida.`,
-                whiteEloChange,
-                blackEloChange,
+               whiteEloChange: eloResult.whiteEloChange,
+                blackEloChange: eloResult.blackEloChange,
+                players: [
+                  { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
+                  { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+                ],
                 winnerMessage: `🏆 ¡Victoria! ${winnerNick} gana por jaque mate.`,
                 loserMessage: `💀 Derrota: ${loserNick} pierde por jaque mate.`,
               });
@@ -209,22 +212,25 @@ export const registerGameHandlers = (
             room.gameEnded = true;
 
             try {
-              const { whiteEloChange, blackEloChange } =
-                await EloService.processMatchEnd({
-                  roomId: room.roomId,
-                  whiteSocketId: room.playerWhite.socketId,
-                  blackSocketId: room.playerBlack.socketId,
-                  whiteNick: room.playerWhite.nick,
-                  blackNick: room.playerBlack.nick,
-                  result: "draw",
-                  reason: "stalemate",
-                });
+             const eloResult = await EloService.processMatchEnd({
+                roomId: room.roomId,
+                whiteSocketId: room.playerWhite.socketId,
+                blackSocketId: room.playerBlack.socketId,
+                whiteNick: room.playerWhite.nick,
+                blackNick: room.playerBlack.nick,
+                result: "draw",
+                reason: "stalemate",
+              });
 
               io.to(roomId).emit("game_over", {
                 reason: "draw",
                 message: "♟️ ¡Ahogado! La partida termina en tablas.",
-                whiteEloChange,
-                blackEloChange,
+                whiteEloChange: eloResult.whiteEloChange,
+                blackEloChange: eloResult.blackEloChange,
+                players: [
+                  { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
+                  { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+                ],
               });
 
               console.log(
@@ -428,16 +434,15 @@ export const registerGameHandlers = (
                     : finalRoom.playerBlack.nick;
 
                 try {
-                  const { whiteEloChange, blackEloChange } =
-                    await EloService.processMatchEnd({
-                      roomId: finalRoom.roomId,
-                      whiteSocketId: finalRoom.playerWhite.socketId,
-                      blackSocketId: finalRoom.playerBlack.socketId,
-                      whiteNick: finalRoom.playerWhite.nick,
-                      blackNick: finalRoom.playerBlack.nick,
-                      result: winnerResult,
-                      reason: "abandonment",
-                    });
+                 const eloResult = await EloService.processMatchEnd({
+                    roomId: finalRoom.roomId,
+                    whiteSocketId: finalRoom.playerWhite.socketId,
+                    blackSocketId: finalRoom.playerBlack.socketId,
+                    whiteNick: finalRoom.playerWhite.nick,
+                    blackNick: finalRoom.playerBlack.nick,
+                    result: winnerResult,
+                    reason: "abandonment",
+                  });
 
                   io.to(roomId).emit("game_over", {
                     reason: "abandonment",
@@ -446,8 +451,12 @@ export const registerGameHandlers = (
                         ? finalRoom.playerWhite.socketId
                         : finalRoom.playerBlack.socketId,
                     message: `🏆 Victoria! ${winnerNick} gana por abandono de ${loserNick}.`,
-                    whiteEloChange,
-                    blackEloChange,
+                    whiteEloChange: eloResult.whiteEloChange,
+                    blackEloChange: eloResult.blackEloChange,
+                    players: [
+                      { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
+                      { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+                    ],
                     winnerMessage: `🏆 Victoria! ${winnerNick} gana por abandono de ${loserNick}.`,
                     loserMessage: `💀 Derrota: ${loserNick} pierde por límite de tiempo de espera.`,
                   });
@@ -486,24 +495,26 @@ export const registerGameHandlers = (
     const winnerResult = IAmWhite ? "black_win" : "white_win";
     const loserNick = IAmWhite ? room.playerWhite.nick : room.playerBlack.nick;
 
-    const { whiteEloChange, blackEloChange } = await EloService.processMatchEnd(
-      {
-        roomId: room.roomId,
-        whiteSocketId: room.playerWhite.socketId,
-        blackSocketId: room.playerBlack.socketId,
-        whiteNick: room.playerWhite.nick,
-        blackNick: room.playerBlack.nick,
-        result: winnerResult,
-        reason: "surrender",
-      },
-    );
+   const eloResult = await EloService.processMatchEnd({
+      roomId: room.roomId,
+      whiteSocketId: room.playerWhite.socketId,
+      blackSocketId: room.playerBlack.socketId,
+      whiteNick: room.playerWhite.nick,
+      blackNick: room.playerBlack.nick,
+      result: winnerResult,
+      reason: "surrender",
+    });
 
     io.to(roomId).emit("game_over", {
       reason: "surrender",
       loserSocketId: socket.id,
       message: `El jugador ${loserNick} ha abandonado.`,
-      whiteEloChange,
-      blackEloChange,
+     whiteEloChange: eloResult.whiteEloChange,
+      blackEloChange: eloResult.blackEloChange,
+      players: [
+        { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
+        { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+      ],
     });
 
     roomManager.removeRoom(roomId);
@@ -534,23 +545,25 @@ export const registerGameHandlers = (
     room.isProcessingEnd = true;
     room.gameEnded = true;
 
-    const { whiteEloChange, blackEloChange } = await EloService.processMatchEnd(
-      {
-        roomId: room.roomId,
-        whiteSocketId: room.playerWhite.socketId,
-        blackSocketId: room.playerBlack.socketId,
-        whiteNick: room.playerWhite.nick,
-        blackNick: room.playerBlack.nick,
-        result: "draw",
-        reason: "draw",
-      },
-    );
+    const eloResult = await EloService.processMatchEnd({
+      roomId: room.roomId,
+      whiteSocketId: room.playerWhite.socketId,
+      blackSocketId: room.playerBlack.socketId,
+      whiteNick: room.playerWhite.nick,
+      blackNick: room.playerBlack.nick,
+      result: "draw",
+      reason: "draw",
+    });
 
     io.to(roomId).emit("game_over", {
       reason: "draw",
       message: "Tablas por mutuo acuerdo.",
-      whiteEloChange,
-      blackEloChange,
+      whiteEloChange: eloResult.whiteEloChange,
+      blackEloChange: eloResult.blackEloChange,
+      players: [
+        { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
+        { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+      ],
     });
 
     roomManager.removeRoom(roomId);
@@ -569,6 +582,10 @@ export const registerGameHandlers = (
         message: "Partida abortada. Sin cambios en Elo.",
         whiteEloChange: 0,
         blackEloChange: 0,
+        players: [
+          { nick: room.playerWhite.nick, newElo: room.playerWhite.elo, eloChange: 0 },
+          { nick: room.playerBlack.nick, newElo: room.playerBlack.elo, eloChange: 0 }
+        ],
       });
 
       roomManager.removeRoom(roomId);

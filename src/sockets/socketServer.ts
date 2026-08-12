@@ -611,7 +611,6 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
   room.timerInterval = setInterval(async () => {
     // ✅ Verificar que el juego haya empezado y no haya terminado
     if (!room.gameStarted || room.isProcessingEnd || room.gameEnded) {
-      // Si la partida ya terminó, limpiar el intervalo
       if (room.gameEnded && room.timerInterval) {
         clearInterval(room.timerInterval);
         room.timerInterval = undefined;
@@ -634,7 +633,7 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
     // Incrementar inactividad global
     room.moveInactivitySeconds++;
 
-    // ⏱️ VERIFICAR INACTIVIDAD EXTREMA (4 minutos = 240 segundos)
+    // ⏱️ VERIFICAR INACTIVIDAD EXTREMA (4 minutos)
     if (room.moveInactivitySeconds >= TIME_CONSTANTS.INACTIVITY_KICK_SECONDS) {
       roomManager.clearRoomTimers(room);
       room.isProcessingEnd = true;
@@ -649,16 +648,15 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
       );
 
       try {
-        const { whiteEloChange, blackEloChange } =
-          await EloService.processMatchEnd({
-            roomId: room.roomId,
-            whiteSocketId: room.playerWhite.socketId,
-            blackSocketId: room.playerBlack.socketId,
-            whiteNick: room.playerWhite.nick,
-            blackNick: room.playerBlack.nick,
-            result: winnerResult,
-            reason: "inactivity_kick",
-          });
+        const eloResult = await EloService.processMatchEnd({
+          roomId: room.roomId,
+          whiteSocketId: room.playerWhite.socketId,
+          blackSocketId: room.playerBlack.socketId,
+          whiteNick: room.playerWhite.nick,
+          blackNick: room.playerBlack.nick,
+          result: winnerResult,
+          reason: "inactivity_kick",
+        });
 
         io.to(room.roomId).emit("game_over", {
           reason: "inactivity_kick",
@@ -667,8 +665,12 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
             turn === "w"
               ? "Blancas descalificadas por inactividad (4 min)."
               : "Negras descalificadas por inactividad (4 min).",
-          whiteEloChange,
-          blackEloChange,
+          whiteEloChange: eloResult.whiteEloChange,
+          blackEloChange: eloResult.blackEloChange,
+          players: [
+            { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
+            { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+          ],
         });
       } catch (err) {
         console.error("❌ Error en inactividad extrema:", err);
@@ -693,16 +695,15 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
       console.log(`⏱️ Time-out en sala ${room.roomId}: ${loserColor} perdió`);
 
       try {
-        const { whiteEloChange, blackEloChange } =
-          await EloService.processMatchEnd({
-            roomId: room.roomId,
-            whiteSocketId: room.playerWhite.socketId,
-            blackSocketId: room.playerBlack.socketId,
-            whiteNick: room.playerWhite.nick,
-            blackNick: room.playerBlack.nick,
-            result: winnerResult,
-            reason: "timeout",
-          });
+        const eloResult = await EloService.processMatchEnd({
+          roomId: room.roomId,
+          whiteSocketId: room.playerWhite.socketId,
+          blackSocketId: room.playerBlack.socketId,
+          whiteNick: room.playerWhite.nick,
+          blackNick: room.playerBlack.nick,
+          result: winnerResult,
+          reason: "timeout",
+        });
 
         io.to(room.roomId).emit("game_over", {
           reason: "timeout",
@@ -710,8 +711,12 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
             room.whiteTime === 0
               ? "⏱️ Las Blancas perdieron por tiempo."
               : "⏱️ Las Negras perdieron por tiempo.",
-          whiteEloChange,
-          blackEloChange,
+          whiteEloChange: eloResult.whiteEloChange,
+          blackEloChange: eloResult.blackEloChange,
+          players: [
+            { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
+            { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+          ],
         });
       } catch (err) {
         console.error("❌ Error en time-out:", err);
@@ -726,5 +731,5 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
       whiteTime: room.whiteTime,
       blackTime: room.blackTime,
     });
-  }, 1000); // ⏱️ 1 segundo = 1000ms
+  }, 1000);
 };

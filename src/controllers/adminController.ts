@@ -22,7 +22,7 @@ export class AdminController {
       }
       
       if (difficulty) {
-        const validDifficulties = ['easy', 'medium', 'hard'];
+        const validDifficulties = ['easy', 'medium', 'hard', 'grandmaster'];
         if (!validDifficulties.includes(difficulty)) {
           res.status(400).json({ 
             message: `Dificultad inválida. Opciones: ${validDifficulties.join(', ')}` 
@@ -78,7 +78,7 @@ export class AdminController {
     try {
       const { difficulty } = req.body;
       
-      const validDifficulties = ['easy', 'medium', 'hard'];
+      const validDifficulties = ['easy', 'medium', 'hard', 'grandmaster'];
       if (!validDifficulties.includes(difficulty)) {
         res.status(400).json({ 
           message: `Dificultad inválida. Opciones: ${validDifficulties.join(', ')}` 

@@ -13,6 +13,7 @@ export class BotFactory {
         return new BotMedium(roomManager, io);
       case "hard":
         return new BotHard(roomManager, io);
+      case "grandmaster":
       default:
         return new BotEasy(roomManager, io);
     }

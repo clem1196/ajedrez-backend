@@ -2,7 +2,6 @@
 import { RoomManager } from "../sockets/roomManager";
 import { BotFactory, BotBase, Bot } from "./bots";
 import { BOT_CONFIG as BOT_CONFIG_GLOBAL } from "../config/botConfig";
-import { EloService } from "./eloService";
 
 export class BotService {
   private activeBots: Map<string, Bot> = new Map();
@@ -25,6 +24,15 @@ export class BotService {
       this.botInstances.set(difficulty, bot);
     }
     return this.botInstances.get(difficulty)!;
+  }
+  /**
+   * 🎯 Determinar nivel automáticamente basándose en el Elo del jugador
+   */
+  public getDifficultyByElo(playerElo: number): string {
+    if (playerElo < 1200) return "easy";
+    if (playerElo < 1600) return "medium";
+    if (playerElo < 1900) return "hard";
+    return "grandmaster";
   }
   /**
    * 🤖 Agregar un bot existente al servicio (para reconexiones)
@@ -71,14 +79,29 @@ export class BotService {
   /**
    * 🎮 Crear un bot para una partida
    */
-  public createBotForGame(roomId: string): Bot | null {
+  public createBotForGame(roomId: string, requestedDifficulty?: string): Bot | null {
     const room = this.roomManager.getRoom(roomId);
     if (!room) {
       console.log(`❌ Sala ${roomId} no encontrada para crear bot`);
       return null;
     }
+    // 1. Obtener Elo del jugador humano presente en la sala
+    const humanPlayer =
+      room.playerWhite?.isBot === false
+        ? room.playerWhite
+        : room.playerBlack?.isBot === false
+          ? room.playerBlack
+          : null;
 
-    const difficulty = BOT_CONFIG_GLOBAL.DIFFICULTY || "easy";
+    // 2. Determinar dificultad: Usar la solicitada, calcularla por Elo o usar fallback
+    let difficulty = requestedDifficulty || room.difficulty;
+    if (!difficulty && humanPlayer) {
+      difficulty = this.getDifficultyByElo(humanPlayer.elo || 1200);
+    }
+    if (!difficulty) {
+      difficulty = BOT_CONFIG_GLOBAL.DIFFICULTY || "easy";
+    }
+
     const botInstance = this.getBotInstance(difficulty);
 
     // ✅ Asegurar que la instancia use el mismo activeBots
@@ -142,110 +165,23 @@ export class BotService {
    * 🤖 Hacer que un bot mueva
    */
   public async botMakeMove(roomId: string, botColor: "w" | "b"): Promise<void> {
-    // ✅ Obtener instancia del bot por dificultad
-    const difficulty = BOT_CONFIG_GLOBAL.DIFFICULTY || "easy";
+    const room = this.roomManager.getRoom(roomId);
+    if (!room) return;
+
+    // Obtener el bot activo en la sala
+    const botSocketId =
+      botColor === "w"
+        ? room.playerWhite?.socketId
+        : room.playerBlack?.socketId;
+    const bot = botSocketId ? this.activeBots.get(botSocketId) : null;
+
+    // Si la sala o el bot guardan la dificultad específica, la usamos
+    const difficulty =
+      room.difficulty || BOT_CONFIG_GLOBAL.DIFFICULTY || "easy";
     const botInstance = this.getBotInstance(difficulty);
 
-    // ✅ Delegar completamente a botInstance (la verificación del bot está dentro)
     await botInstance.makeMove(roomId, botColor);
   }
-
-  /*
-   //♟️ Manejar jaque mate
-   
-  private async handleCheckmate(room: any, botColor: "w" | "b"): Promise<void> {
-    room.isProcessingEnd = true;
-    room.gameEnded = true;
-    this.roomManager.clearRoomTimers(room);
-
-    const winnerResult = botColor === "w" ? "black_win" : "white_win";
-    const winnerNick =
-      botColor === "w" ? room.playerBlack.nick : room.playerWhite.nick;
-    const loserNick =
-      botColor === "w" ? room.playerWhite.nick : room.playerBlack.nick;
-
-    try {
-      const { whiteEloChange, blackEloChange } =
-        await EloService.processMatchEnd({
-          roomId: room.roomId,
-          whiteSocketId: room.playerWhite.socketId,
-          blackSocketId: room.playerBlack.socketId,
-          whiteNick: room.playerWhite.nick,
-          blackNick: room.playerBlack.nick,
-          result: winnerResult,
-          reason: "checkmate",
-        });
-
-      this.io.to(room.roomId).emit("game_over", {
-        reason: "checkmate",
-        loserSocketId:
-          botColor === "w"
-            ? room.playerWhite.socketId
-            : room.playerBlack.socketId,
-        message: `♟️ ¡Jaque Mate! ${winnerNick} gana la partida.`,
-        whiteEloChange,
-        blackEloChange,
-        winnerMessage: `🏆 ¡Victoria! ${winnerNick} gana por jaque mate.`,
-        loserMessage: `💀 Derrota: ${loserNick} pierde por jaque mate.`,
-      });
-
-      const bot = this.activeBots.get(
-        botColor === "w"
-          ? room.playerWhite.socketId
-          : room.playerBlack.socketId,
-      );
-      if (bot) {
-        this.removeBot(room.roomId, bot.id);
-      }
-
-      this.roomManager.removeRoom(room.roomId);
-    } catch (err) {
-      console.error("❌ Error en jaque mate:", err);
-    }
-  }
-
-  
-   // ♟️ Manejar ahogado (stalemate)
-   
-  private async handleStalemate(room: any): Promise<void> {
-    room.isProcessingEnd = true;
-    room.gameEnded = true;
-    this.roomManager.clearRoomTimers(room);
-
-    try {
-      const { whiteEloChange, blackEloChange } =
-        await EloService.processMatchEnd({
-          roomId: room.roomId,
-          whiteSocketId: room.playerWhite.socketId,
-          blackSocketId: room.playerBlack.socketId,
-          whiteNick: room.playerWhite.nick,
-          blackNick: room.playerBlack.nick,
-          result: "draw",
-          reason: "stalemate",
-        });
-
-      this.io.to(room.roomId).emit("game_over", {
-        reason: "draw",
-        message: "♟️ ¡Ahogado! La partida termina en tablas.",
-        whiteEloChange,
-        blackEloChange,
-      });
-
-      const bot = this.activeBots.get(
-        room.playerWhite?.isBot
-          ? room.playerWhite.socketId
-          : room.playerBlack?.socketId,
-      );
-      if (bot) {
-        this.removeBot(room.roomId, bot.id);
-      }
-
-      this.roomManager.removeRoom(room.roomId);
-    } catch (err) {
-      console.error("❌ Error en ahogado:", err);
-    }
-  }
-*/
 
   /**
    * 🗑️ Eliminar un bot

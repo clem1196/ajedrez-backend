@@ -193,9 +193,7 @@ export const getProfile = async (req: AuthenticatedRequest, res: Response): Prom
   }
 };
 
-/**
- * 🔄 Actualizar Elo del usuario después de una partida
- */
+
 /* 👤 Actualizar perfil de usuario
  */
 export const updateProfile = async (req: AuthenticatedRequest, res: Response): Promise<void> => {

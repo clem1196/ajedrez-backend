@@ -1,8 +1,8 @@
 // src/services/eloService.ts
-import { AppDataSource } from '../config/dataSource';
-import { UserStats } from '../entities/UserStats';
-import { GameHistory } from '../entities/GameHistory';
-import { User } from '../entities/User';
+import { AppDataSource } from "../config/dataSource";
+import { UserStats } from "../entities/UserStats";
+import { GameHistory } from "../entities/GameHistory";
+import { User } from "../entities/User";
 
 interface MatchResultInput {
   roomId: string;
@@ -10,17 +10,17 @@ interface MatchResultInput {
   blackSocketId: string;
   whiteNick: string;
   blackNick: string;
-  result: 'white_win' | 'black_win' | 'draw' | 'abort';
+  result: "white_win" | "black_win" | "draw" | "abort";
   reason: string; // 'checkmate', 'surrender', 'timeout', 'abort_by_inactivity', 'draw', 'abandonment'
 }
 
 // ✅ Constantes de configuración
 const ELO_CONFIG = {
-  K_FACTOR: 32,           // Factor de desarrollo estándar
-  MIN_ELO: 100,           // Elo mínimo posible
-  DEFAULT_ELO: 1200,      // Elo inicial por defecto
-  COURTESY_BONUS: 1,      // Bono por cortesía en abortos
-  ELO_ABORT_PENALTY: 0,   // Penalización en abortos
+  K_FACTOR: 32, // Factor de desarrollo estándar
+  MIN_ELO: 100, // Elo mínimo posible
+  DEFAULT_ELO: 1200, // Elo inicial por defecto
+  COURTESY_BONUS: 1, // Bono por cortesía en abortos
+  ELO_ABORT_PENALTY: 0, // Penalización en abortos
 } as const;
 
 export class EloService {
@@ -33,19 +33,21 @@ export class EloService {
    */
   public static async processMatchEnd(input: MatchResultInput) {
     try {
-      console.log(`💾 [EloService] Procesando fin de partida para la sala: ${input.roomId}`);
+      console.log(
+        `💾 [EloService] Procesando fin de partida para la sala: ${input.roomId}`,
+      );
       console.log(`   Resultado: ${input.result}, Razón: ${input.reason}`);
 
       // 1. Buscar si los jugadores están registrados en la BD por su Nick
       const [whiteUser, blackUser] = await Promise.all([
-        this.userRepository.findOne({ 
-          where: { nick: input.whiteNick }, 
-          relations: ['stats'] 
+        this.userRepository.findOne({
+          where: { nick: input.whiteNick },
+          relations: ["stats"],
         }),
-        this.userRepository.findOne({ 
-          where: { nick: input.blackNick }, 
-          relations: ['stats'] 
-        })
+        this.userRepository.findOne({
+          where: { nick: input.blackNick },
+          relations: ["stats"],
+        }),
       ]);
 
       // 2. Calcular cambios de Elo
@@ -53,7 +55,7 @@ export class EloService {
         whiteUser,
         blackUser,
         result: input.result,
-        reason: input.reason
+        reason: input.reason,
       });
 
       // 3. Actualizar la base de datos para ambos jugadores (si están registrados)
@@ -62,7 +64,7 @@ export class EloService {
         blackUser,
         whiteEloChange,
         blackEloChange,
-        result: input.result
+        result: input.result,
       });
 
       // 4. Registrar el juego en el historial global
@@ -75,15 +77,25 @@ export class EloService {
         result: input.result,
         reason: input.reason,
         whiteEloChange,
-        blackEloChange
+        blackEloChange,
       });
 
-      console.log(`📈 [EloService] Actualizado ${input.roomId}: Blancas ${whiteEloChange > 0 ? '+' : ''}${whiteEloChange}, Negras ${blackEloChange > 0 ? '+' : ''}${blackEloChange}`);
-      
-      return { whiteEloChange, blackEloChange };
+      console.log(
+        `📈 [EloService] Actualizado ${input.roomId}: Blancas ${whiteEloChange > 0 ? "+" : ""}${whiteEloChange}, Negras ${blackEloChange > 0 ? "+" : ""}${blackEloChange}`,
+      );
 
+      return {
+        whiteEloChange,
+        blackEloChange,
+        whiteNick: input.whiteNick,
+        blackNick: input.blackNick,
+        whiteNewElo:
+          whiteUser?.stats?.elo ?? ELO_CONFIG.DEFAULT_ELO + whiteEloChange,
+        blackNewElo:
+          blackUser?.stats?.elo ?? ELO_CONFIG.DEFAULT_ELO + blackEloChange,
+      };
     } catch (error) {
-      console.error('❌ Error crítico en EloService.processMatchEnd:', error);
+      console.error("❌ Error crítico en EloService.processMatchEnd:", error);
       return { whiteEloChange: 0, blackEloChange: 0 };
     }
   }
@@ -94,7 +106,7 @@ export class EloService {
   private static calculateEloChanges(params: {
     whiteUser: User | null;
     blackUser: User | null;
-    result: 'white_win' | 'black_win' | 'draw' | 'abort';
+    result: "white_win" | "black_win" | "draw" | "abort";
     reason: string;
   }) {
     const { whiteUser, blackUser, result, reason } = params;
@@ -107,8 +119,8 @@ export class EloService {
     let blackEloChange = 0;
 
     // ✅ Si es aborto, manejo especial
-    if (result === 'abort') {
-      if (reason === 'abort_by_inactivity') {
+    if (result === "abort") {
+      if (reason === "abort_by_inactivity") {
         // Las blancas no movieron: las negras reciben un bono de cortesía si están registradas
         whiteEloChange = 0;
         blackEloChange = blackUser ? ELO_CONFIG.COURTESY_BONUS : 0;
@@ -121,26 +133,42 @@ export class EloService {
     }
 
     // ✅ Si es tablas
-    if (result === 'draw') {
+    if (result === "draw") {
       const scoreWhite = 0.5;
       const scoreBlack = 0.5;
-      
-      const changeWhite = this.calculateSingleEloChange(eloWhite, eloBlack, scoreWhite);
-      const changeBlack = this.calculateSingleEloChange(eloBlack, eloWhite, scoreBlack);
-      
+
+      const changeWhite = this.calculateSingleEloChange(
+        eloWhite,
+        eloBlack,
+        scoreWhite,
+      );
+      const changeBlack = this.calculateSingleEloChange(
+        eloBlack,
+        eloWhite,
+        scoreBlack,
+      );
+
       whiteEloChange = whiteUser ? changeWhite : 0;
       blackEloChange = blackUser ? changeBlack : 0;
-      
+
       return { whiteEloChange, blackEloChange };
     }
 
     // ✅ Si es victoria para blancas o negras
-    const isWhiteWin = result === 'white_win';
+    const isWhiteWin = result === "white_win";
     const scoreWhite = isWhiteWin ? 1 : 0;
     const scoreBlack = isWhiteWin ? 0 : 1;
 
-    const changeWhite = this.calculateSingleEloChange(eloWhite, eloBlack, scoreWhite);
-    const changeBlack = this.calculateSingleEloChange(eloBlack, eloWhite, scoreBlack);
+    const changeWhite = this.calculateSingleEloChange(
+      eloWhite,
+      eloBlack,
+      scoreWhite,
+    );
+    const changeBlack = this.calculateSingleEloChange(
+      eloBlack,
+      eloWhite,
+      scoreBlack,
+    );
 
     whiteEloChange = whiteUser ? changeWhite : 0;
     blackEloChange = blackUser ? changeBlack : 0;
@@ -151,13 +179,17 @@ export class EloService {
   /**
    * 🧮 Calcula el cambio de Elo para un solo jugador
    */
-  private static calculateSingleEloChange(eloA: number, eloB: number, scoreA: number): number {
+  private static calculateSingleEloChange(
+    eloA: number,
+    eloB: number,
+    scoreA: number,
+  ): number {
     // Esperanza de victoria para el jugador A
     const expectedA = 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
-    
+
     // Variación neta (puede ser positiva o negativa)
     const change = Math.round(ELO_CONFIG.K_FACTOR * (scoreA - expectedA));
-    
+
     return change;
   }
 
@@ -169,39 +201,44 @@ export class EloService {
     blackUser: User | null;
     whiteEloChange: number;
     blackEloChange: number;
-    result: 'white_win' | 'black_win' | 'draw' | 'abort';
+    result: "white_win" | "black_win" | "draw" | "abort";
   }) {
-    const { whiteUser, blackUser, whiteEloChange, blackEloChange, result } = params;
+    const { whiteUser, blackUser, whiteEloChange, blackEloChange, result } =
+      params;
 
     // ✅ Actualizar Blancas
     if (whiteUser?.stats) {
       const stats = whiteUser.stats;
       stats.elo = Math.max(ELO_CONFIG.MIN_ELO, stats.elo + whiteEloChange);
-      
-      if (result === 'white_win') stats.wins += 1;
-      else if (result === 'black_win') stats.losses += 1;
-      else if (result === 'draw') stats.draws += 1;
-      
+
+      if (result === "white_win") stats.wins += 1;
+      else if (result === "black_win") stats.losses += 1;
+      else if (result === "draw") stats.draws += 1;
+
       await this.statsRepository.save(stats);
-      console.log(`   🟢 Blancas (${whiteUser.nick}): Elo ${stats.elo - whiteEloChange} → ${stats.elo} (${whiteEloChange > 0 ? '+' : ''}${whiteEloChange})`);
+      console.log(
+        `   🟢 Blancas (${whiteUser.nick}): Elo ${stats.elo - whiteEloChange} → ${stats.elo} (${whiteEloChange > 0 ? "+" : ""}${whiteEloChange})`,
+      );
     }
 
     // ✅ Actualizar Negras
     if (blackUser?.stats) {
       const stats = blackUser.stats;
       stats.elo = Math.max(ELO_CONFIG.MIN_ELO, stats.elo + blackEloChange);
-      
-      if (result === 'black_win') stats.wins += 1;
-      else if (result === 'white_win') stats.losses += 1;
-      else if (result === 'draw') stats.draws += 1;
-      
+
+      if (result === "black_win") stats.wins += 1;
+      else if (result === "white_win") stats.losses += 1;
+      else if (result === "draw") stats.draws += 1;
+
       await this.statsRepository.save(stats);
-      console.log(`   🔴 Negras (${blackUser.nick}): Elo ${stats.elo - blackEloChange} → ${stats.elo} (${blackEloChange > 0 ? '+' : ''}${blackEloChange})`);
+      console.log(
+        `   🔴 Negras (${blackUser.nick}): Elo ${stats.elo - blackEloChange} → ${stats.elo} (${blackEloChange > 0 ? "+" : ""}${blackEloChange})`,
+      );
     }
 
     // ✅ Si ambos son invitados, solo loguear
     if (!whiteUser && !blackUser) {
-      console.log('   👤 Ambos jugadores son invitados - Sin cambios en BD');
+      console.log("   👤 Ambos jugadores son invitados - Sin cambios en BD");
     }
   }
 
@@ -214,7 +251,7 @@ export class EloService {
     blackNick: string;
     whiteUser: User | null;
     blackUser: User | null;
-    result: 'white_win' | 'black_win' | 'draw' | 'abort';
+    result: "white_win" | "black_win" | "draw" | "abort";
     reason: string;
     whiteEloChange: number;
     blackEloChange: number;
@@ -244,17 +281,14 @@ export class EloService {
       if (!user) return [];
 
       const history = await this.historyRepository.find({
-        where: [
-          { whiteUser: { id: user.id } },
-          { blackUser: { id: user.id } }
-        ],
-        order: { playedAt: 'DESC' },
-        take: limit
+        where: [{ whiteUser: { id: user.id } }, { blackUser: { id: user.id } }],
+        order: { playedAt: "DESC" },
+        take: limit,
       });
 
       return history;
     } catch (error) {
-      console.error('❌ Error obteniendo historial:', error);
+      console.error("❌ Error obteniendo historial:", error);
       return [];
     }
   }
@@ -265,21 +299,21 @@ export class EloService {
   public static async getRanking(limit: number = 100) {
     try {
       const ranking = await this.statsRepository.find({
-        relations: ['user'],
-        order: { elo: 'DESC' },
-        take: limit
+        relations: ["user"],
+        order: { elo: "DESC" },
+        take: limit,
       });
 
-      return ranking.map(stat => ({
+      return ranking.map((stat) => ({
         nick: stat.user.nick,
         elo: stat.elo,
         wins: stat.wins,
         losses: stat.losses,
         draws: stat.draws,
-        totalGames: stat.wins + stat.losses + stat.draws
+        totalGames: stat.wins + stat.losses + stat.draws,
       }));
     } catch (error) {
-      console.error('❌ Error obteniendo ranking:', error);
+      console.error("❌ Error obteniendo ranking:", error);
       return [];
     }
   }
@@ -291,7 +325,7 @@ export class EloService {
     try {
       const user = await this.userRepository.findOne({
         where: { nick },
-        relations: ['stats']
+        relations: ["stats"],
       });
 
       if (!user || !user.stats) return null;
@@ -302,10 +336,10 @@ export class EloService {
         wins: user.stats.wins,
         losses: user.stats.losses,
         draws: user.stats.draws,
-        totalGames: user.stats.wins + user.stats.losses + user.stats.draws
+        totalGames: user.stats.wins + user.stats.losses + user.stats.draws,
       };
     } catch (error) {
-      console.error('❌ Error obteniendo estadísticas:', error);
+      console.error("❌ Error obteniendo estadísticas:", error);
       return null;
     }
   }
@@ -313,7 +347,11 @@ export class EloService {
   /**
    * 📊 Método público para calcular cambio de Elo (utilidad)
    */
-  public static calculateEloChange(eloA: number, eloB: number, scoreA: number): number {
+  public static calculateEloChange(
+    eloA: number,
+    eloB: number,
+    scoreA: number,
+  ): number {
     return this.calculateSingleEloChange(eloA, eloB, scoreA);
   }
 }
