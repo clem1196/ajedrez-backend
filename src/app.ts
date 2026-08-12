@@ -5,26 +5,30 @@ import userRoutes from './routes/userRoutes';
 import cors from 'cors';
 
 const app: Application = express();
-
-// Lista de orígenes permitidos (Producción en Vercel + Desarrollo local)
-const allowedOrigins = [
-  process.env.CORS_ORIGIN, // https://ajedrez-frontend.vercel.app
-  'http://localhost:5173',  // Desarrollo local con Vite
-  'http://localhost:3000'   // Desarrollo local alternativo
-];
-
 app.use(cors({
-    origin: (origin, callback) => {
-      // Permite peticiones sin origin (como Postman o Server-to-Server) o si está en la lista permitida
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error(`CORS bloqueado para el origen: ${origin}`));
-      }
-    },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
+  origin: (origin, callback) => {
+    // 1. Permite peticiones sin origin (Postman, Server-to-Server, etc.)
+    if (!origin) return callback(null, true);
+
+    // 2. Lista de orígenes explícitos (Desarrollo local + Tu dominio principal de Vercel)
+    const allowedOrigins = [
+      process.env.CORS_ORIGIN, // https://ajedrez-frontend.vercel.app
+      'http://localhost:5173',
+      'http://localhost:3000'
+    ];
+
+    // 3. Permite cualquier subdominio de Vercel perteneciente a tu proyecto (.vercel.app)
+    const isVercelPreview = origin.endsWith('.vercel.app');
+
+    if (allowedOrigins.includes(origin) || isVercelPreview) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS bloqueado para el origen: ${origin}`));
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 // Middlewares básicos
