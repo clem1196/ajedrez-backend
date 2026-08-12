@@ -14,6 +14,9 @@ export const AppDataSource = new DataSource({
   synchronize: true, // 💡 Auto-crea o actualiza las tablas al levantar el servidor (Ideal para desarrollo)
   logging: false,
   entities: [User, UserStats, GameHistory],
+  ssl: {
+    rejectUnauthorized: false
+  },
   subscribers: [],
   migrations: [],
 });
