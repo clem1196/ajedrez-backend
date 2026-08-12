@@ -15,10 +15,11 @@ const typeorm_1 = require("typeorm");
 const User_1 = require("./User");
 let UserStats = class UserStats {
     id;
-    elo; // 🏆 Puntaje competitivo global
+    elo;
     wins;
     losses;
     draws;
+    // ✅ CORREGIDO: La relación inversa debe coincidir con la de User
     user;
 };
 exports.UserStats = UserStats;

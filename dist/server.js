@@ -13,7 +13,7 @@ const socketServer_1 = require("./sockets/socketServer");
 const dataSource_1 = require("./config/dataSource"); // Importamos tu fuente de datos
 const PORT = process.env.PORT || 4000;
 const server = http_1.default.createServer(app_1.default);
-(0, socketServer_1.initSocketServer)(server);
+(0, socketServer_1.initSocketServer)(server, app_1.default);
 // 💡 Inicializamos la conexión a MySQL con TypeORM antes de colgar el puerto a la red
 dataSource_1.AppDataSource.initialize()
     .then(() => {

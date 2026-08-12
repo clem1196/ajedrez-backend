@@ -17,9 +17,10 @@ let User = class User {
     id;
     nick;
     email;
-    password; // Aquí guardaremos el hash seguro con bcrypt más adelante
+    password;
+    isAdmin;
     createdAt;
-    // Relación 1 a 1 con su tabla de estadísticas
+    // ✅ CORREGIDO: Relación 1 a 1 con UserStats
     stats;
 };
 exports.User = User;
@@ -39,6 +40,11 @@ __decorate([
     (0, typeorm_1.Column)({ length: 255 }),
     __metadata("design:type", String)
 ], User.prototype, "password", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ default: false }) // ✅ Nuevo campo
+    ,
+    __metadata("design:type", Boolean)
+], User.prototype, "isAdmin", void 0);
 __decorate([
     (0, typeorm_1.CreateDateColumn)(),
     __metadata("design:type", Date)
