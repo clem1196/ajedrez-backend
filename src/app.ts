@@ -1,26 +1,41 @@
 // src/app.ts
 import express, { Application, Request, Response } from 'express';
-import authRoutes from './routes/authRoute'
+import authRoutes from './routes/authRoute';
 import userRoutes from './routes/userRoutes';
-import cors from 'cors'
+import cors from 'cors';
 
 const app: Application = express();
-// 💡 2. Configurar el middleware de CORS antes de tus rutas
+
+// Lista de orígenes permitidos (Producción en Vercel + Desarrollo local)
+const allowedOrigins = [
+  process.env.CORS_ORIGIN, // https://ajedrez-frontend.vercel.app
+  'http://localhost:5173',  // Desarrollo local con Vite
+  'http://localhost:3000'   // Desarrollo local alternativo
+];
+
 app.use(cors({
-    origin: 'http://localhost:5173', // ✅ Permite peticiones explícitamente desde tu frontend de Vue
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Permite los métodos necesarios
-    allowedHeaders: ['Content-Type', 'Authorization'], // Permites las cabeceras comunes
-    credentials: true // Por si a futuro manejas cookies o sesiones
+    origin: (origin, callback) => {
+      // Permite peticiones sin origin (como Postman o Server-to-Server) o si está en la lista permitida
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS bloqueado para el origen: ${origin}`));
+      }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
 }));
+
 // Middlewares básicos
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 💡 Conectamos las rutas del CRUD/Autenticación de usuarios
+// Rutas de la aplicación
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 
-// Ruta de prueba para verificar que la API responde
+// Ruta de prueba
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'OK', message: 'Servidor de Ajedrez corriendo correctamente' });
 });
