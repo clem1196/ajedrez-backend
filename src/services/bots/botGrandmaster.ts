@@ -14,47 +14,29 @@ const PIECE_VALUES: Record<PieceSymbol, number> = {
 
 // ♟️ Tablas Posicionales (Piece-Square Tables)
 const PAWN_PST = [
-  0,  0,  0,  0,  0,  0,  0,  0,
-  50, 50, 50, 50, 50, 50, 50, 50,
-  10, 10, 20, 30, 30, 20, 10, 10,
-   5,  5, 10, 25, 25, 10,  5,  5,
-   0,  0,  0, 20, 20,  0,  0,  0,
-   5, -5,-10,  0,  0,-10, -5,  5,
-   5, 10, 10,-20,-20, 10, 10,  5,
-   0,  0,  0,  0,  0,  0,  0,  0
+  0, 0, 0, 0, 0, 0, 0, 0, 50, 50, 50, 50, 50, 50, 50, 50, 10, 10, 20, 30, 30,
+  20, 10, 10, 5, 5, 10, 25, 25, 10, 5, 5, 0, 0, 0, 20, 20, 0, 0, 0, 5, -5, -10,
+  0, 0, -10, -5, 5, 5, 10, 10, -20, -20, 10, 10, 5, 0, 0, 0, 0, 0, 0, 0, 0,
 ];
 
 const KNIGHT_PST = [
-  -50,-40,-30,-30,-30,-30,-40,-50,
-  -40,-20,  0,  0,  0,  0,-20,-40,
-  -30,  0, 10, 15, 15, 10,  0,-30,
-  -30,  5, 15, 20, 20, 15,  5,-30,
-  -30,  0, 15, 20, 20, 15,  0,-30,
-  -30,  5, 10, 15, 15, 10,  5,-30,
-  -40,-20,  0,  5,  5,  0,-20,-40,
-  -50,-40,-30,-30,-30,-30,-40,-50
+  -50, -40, -30, -30, -30, -30, -40, -50, -40, -20, 0, 0, 0, 0, -20, -40, -30,
+  0, 10, 15, 15, 10, 0, -30, -30, 5, 15, 20, 20, 15, 5, -30, -30, 0, 15, 20, 20,
+  15, 0, -30, -30, 5, 10, 15, 15, 10, 5, -30, -40, -20, 0, 5, 5, 0, -20, -40,
+  -50, -40, -30, -30, -30, -30, -40, -50,
 ];
 
 const BISHOP_PST = [
-  -20,-10,-10,-10,-10,-10,-10,-20,
-  -10,  0,  0,  0,  0,  0,  0,-10,
-  -10,  0,  5, 10, 10,  5,  0,-10,
-  -10,  5,  5, 10, 10,  5,  5,-10,
-  -10,  0, 10, 10, 10, 10,  0,-10,
-  -10, 10, 10, 10, 10, 10, 10,-10,
-  -10,  5,  0,  0,  0,  0,  5,-10,
-  -20,-10,-10,-10,-10,-10,-10,-20
+  -20, -10, -10, -10, -10, -10, -10, -20, -10, 0, 0, 0, 0, 0, 0, -10, -10, 0, 5,
+  10, 10, 5, 0, -10, -10, 5, 5, 10, 10, 5, 5, -10, -10, 0, 10, 10, 10, 10, 0,
+  -10, -10, 10, 10, 10, 10, 10, 10, -10, -10, 5, 0, 0, 0, 0, 5, -10, -20, -10,
+  -10, -10, -10, -10, -10, -20,
 ];
 
 const ROOK_PST = [
-    0,  0,  0,  0,  0,  0,  0,  0,
-    5, 10, 10, 10, 10, 10, 10,  5,
-   -5,  0,  0,  0,  0,  0,  0, -5,
-   -5,  0,  0,  0,  0,  0,  0, -5,
-   -5,  0,  0,  0,  0,  0,  0, -5,
-   -5,  0,  0,  0,  0,  0,  0, -5,
-   -5,  0,  0,  0,  0,  0,  0, -5,
-    0,  0,  0,  5,  5,  0,  0,  0
+  0, 0, 0, 0, 0, 0, 0, 0, 5, 10, 10, 10, 10, 10, 10, 5, -5, 0, 0, 0, 0, 0, 0,
+  -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0, -5, -5, 0, 0, 0, 0, 0, 0,
+  -5, -5, 0, 0, 0, 0, 0, 0, -5, 0, 0, 0, 5, 5, 0, 0, 0,
 ];
 
 export class BotGrandmaster extends BotBase {
@@ -105,13 +87,15 @@ export class BotGrandmaster extends BotBase {
     chess: Chess,
     alpha: number,
     beta: number,
-    botColor: "w" | "b"
+    botColor: "w" | "b",
   ): number {
     const standPat = this.evaluateBoard(chess, botColor);
     if (standPat >= beta) return beta;
     if (alpha < standPat) alpha = standPat;
 
-    const captureMoves = chess.moves({ verbose: true }).filter((m) => m.captured);
+    const captureMoves = chess
+      .moves({ verbose: true })
+      .filter((m) => m.captured);
 
     for (const move of captureMoves) {
       chess.move(move);
@@ -133,7 +117,7 @@ export class BotGrandmaster extends BotBase {
     alpha: number,
     beta: number,
     isMaximizing: boolean,
-    botColor: "w" | "b"
+    botColor: "w" | "b",
   ): number {
     if (depth === 0 || chess.isGameOver()) {
       return this.quiescenceSearch(chess, alpha, beta, botColor);
@@ -146,7 +130,14 @@ export class BotGrandmaster extends BotBase {
       let maxEval = -Infinity;
       for (const move of moves) {
         chess.move(move);
-        const evaluation = this.evaluateMinimax(chess, depth - 1, alpha, beta, false, botColor);
+        const evaluation = this.evaluateMinimax(
+          chess,
+          depth - 1,
+          alpha,
+          beta,
+          false,
+          botColor,
+        );
         chess.undo();
         maxEval = Math.max(maxEval, evaluation);
         alpha = Math.max(alpha, evaluation);
@@ -157,7 +148,14 @@ export class BotGrandmaster extends BotBase {
       let minEval = Infinity;
       for (const move of moves) {
         chess.move(move);
-        const evaluation = this.evaluateMinimax(chess, depth - 1, alpha, beta, true, botColor);
+        const evaluation = this.evaluateMinimax(
+          chess,
+          depth - 1,
+          alpha,
+          beta,
+          true,
+          botColor,
+        );
         chess.undo();
         minEval = Math.min(minEval, evaluation);
         beta = Math.min(beta, evaluation);
@@ -168,35 +166,46 @@ export class BotGrandmaster extends BotBase {
   }
 
   /**
-   * 🎯 Selección de la mejor jugada
+   * 🎯 Selección de la mejor jugada (Optimizado para evitar congelar el Event Loop de Node)
    */
   protected async selectMove(moves: any[], botColor: "w" | "b", chess: Chess): Promise<any> {
     if (!moves || moves.length === 0) return null;
 
-    let bestMove = moves[0];
-    let bestValue = -Infinity;
-    const depth = 4;
+    try {
+      let bestMove = moves[0];
+      let bestValue = -Infinity;
+      
+      // 💡 Depth 3 + Quiescence es el equilibrio perfecto en JS para respuestas instantáneas
+      const depth = 3; 
 
-    for (const move of moves) {
-      chess.move(move);
-      const boardValue = this.evaluateMinimax(
-        chess,
-        depth - 1,
-        -Infinity,
-        Infinity,
-        false,
-        botColor
-      );
-      chess.undo();
+      for (const move of moves) {
+        chess.move(move);
+        const boardValue = this.evaluateMinimax(
+          chess,
+          depth - 1,
+          -Infinity,
+          Infinity,
+          false,
+          botColor
+        );
+        chess.undo();
 
-      if (boardValue > bestValue) {
-        bestValue = boardValue;
-        bestMove = move;
+        if (boardValue > bestValue) {
+          bestValue = boardValue;
+          bestMove = move;
+        }
+
+        // 🟢 Liberar levemente el Event Loop de Node en partidas complejas
+        await new Promise((resolve) => setTimeout(resolve, 0));
       }
-    }
 
-    console.log(`🤖 [Grandmaster] Jugada seleccionada: ${bestMove.from}->${bestMove.to} (Score: ${bestValue})`);
-    return bestMove;
+      console.log(`🤖 [Grandmaster] Jugada seleccionada: ${bestMove.from}->${bestMove.to} (Score: ${bestValue})`);
+      return bestMove;
+    } catch (error) {
+      console.error("❌ Error durante la selección de movimiento del Bot Grandmaster:", error);
+      // Fallback de seguridad: si algo falla, no congela el juego y retorna un movimiento legal aleatorio
+      return moves[Math.floor(Math.random() * moves.length)];
+    }
   }
 
   public createBot(roomId: string, botColor: "w" | "b"): Bot {
@@ -215,7 +224,9 @@ export class BotGrandmaster extends BotBase {
     };
 
     this.activeBots.set(botId, bot);
-    console.log(`🤖 [Grandmaster] Bot ${botNick} (${botElo} Elo) creado para sala ${roomId}`);
+    console.log(
+      `🤖 [Grandmaster] Bot ${botNick} (${botElo} Elo) creado para sala ${roomId}`,
+    );
     return bot;
   }
 }
