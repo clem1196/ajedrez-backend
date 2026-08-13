@@ -2,7 +2,7 @@
 import { Chess } from "chess.js";
 import { RoomManager } from "../../sockets/roomManager";
 import { EloService } from "../../services/eloService";
-import { getBestMove } from "../../helpers/chessHelper";
+import { getBestMove } from "../../helpers/stockfishHelper";
 export interface Bot {
   id: string;
   nick: string;
@@ -1063,36 +1063,67 @@ export abstract class BotBase {
     const thinkingTime = this.getRandomThinkingTime();
     console.log(`🤖 Bot ${bot.nick} está pensando... (${thinkingTime}ms)`);
 
-   bot.thinkingTimer = setTimeout(async () => {
-  try {
-    const moves = room.chessInstance.moves({ verbose: true });
-    if (moves.length === 0) return;
+    bot.thinkingTimer = setTimeout(async () => {
+      const fen = room.chessInstance.fen();
 
-    // Llama directamente al selectMove() de la clase hija (Easy, Medium, Grandmaster)
-    const move = await this.selectMove(moves, botColor, room.chessInstance);
+      const difficultyConfig: Record<string, { skill: number; depth: number }> =
+        {
+          easy: { skill: 1, depth: 3 }, // 🟢 Novato: Comete errores tácticos reales
+          medium: { skill: 8, depth: 7 }, // 🟡 Intermedio: Jugador aficionado (~1400 Elo)
+          hard: { skill: 15, depth: 11 }, // 🟠 Avanzado: Jugador de club (~1800 Elo)
+          grandmaster: { skill: 20, depth: 16 }, // 🟣 Gran Maestro: Máxima potencia Stockfish
+        };
+      const { skill, depth } =
+        difficultyConfig[this.difficulty] || difficultyConfig.easy;
 
-    if (move) {
-      const result = room.chessInstance.move(move);
-      if (result) {
-        this.io.to(roomId).emit("move_made", {
-          move: result,
-          fen: room.chessInstance.fen(),
-          turn: room.chessInstance.turn(),
-          whiteTime: room.whiteTime,
-          blackTime: room.blackTime,
-          isBotMove: true,
-          botNick: bot.nick,
-        });
+      try {
+        const bestMove = await getBestMove(fen, skill, depth);
+        if (bestMove) {
+          // ✅ CORREGIDO: Asegurar que chess.js procese correctamente el string UCI de Stockfish
+          // Si usas chess.js v1.0.0-beta.6 o superior, acepta la propiedad 'sloppy' u objetos directos
+          const result = room.chessInstance.move({
+            from: bestMove.substring(0, 2),
+            to: bestMove.substring(2, 4),
+            promotion: bestMove.length === 5 ? bestMove.charAt(4) : undefined,
+          });
 
-        if (room.chessInstance.isCheckmate()) {
-          await this.handleCheckmate(room, botColor);
-          return;
+          if (result) {
+            this.io.to(roomId).emit("move_made", {
+              move: result,
+              fen: room.chessInstance.fen(),
+              turn: room.chessInstance.turn(),
+              whiteTime: room.whiteTime,
+              blackTime: room.blackTime,
+              isBotMove: true,
+              botNick: bot.nick,
+            });
+            console.log(
+              `🤖 Bot ${bot.nick} (Stockfish) movió: ${result.from} -> ${result.to}`,
+            );
+            // ♟️ VERIFICAR SI EL BOT HIZO JAQUE MATE O AHOGADO
+            if (room.chessInstance.isCheckmate()) {
+              await this.handleCheckmate(room, botColor);
+              return;
+            }
+
+            if (room.chessInstance.isStalemate()) {
+              await this.handleStalemate(room);
+              return;
+            }
+          } else {
+            console.error(
+              `⚠️ Stockfish generó un movimiento UCI inválido para chess.js: ${bestMove}`,
+            );
+          }
         }
+      } catch (err) {
+        console.error("❌ Error al calcular jugada con Stockfish:", err);
       }
-    }
-  } catch (err) {
-    console.error("❌ Error en jugada del bot:", err);
-  }
-}, thinkingTime);
+
+      if (bot.thinkingTimer) {
+        clearTimeout(bot.thinkingTimer);
+        bot.thinkingTimer = undefined;
+      }
+    }, thinkingTime);
   }
 }
