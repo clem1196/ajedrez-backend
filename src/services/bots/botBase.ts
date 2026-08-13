@@ -2,7 +2,7 @@
 import { Chess } from "chess.js";
 import { RoomManager } from "../../sockets/roomManager";
 import { EloService } from "../../services/eloService";
-import { getBestMove } from "../../helpers/stockfishHelper";
+import { getBestMove } from "../../helpers/chessHelper";
 export interface Bot {
   id: string;
   nick: string;
