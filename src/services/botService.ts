@@ -79,7 +79,10 @@ export class BotService {
   /**
    * 🎮 Crear un bot para una partida
    */
-  public createBotForGame(roomId: string, requestedDifficulty?: string): Bot | null {
+  public createBotForGame(
+    roomId: string,
+    requestedDifficulty?: string,
+  ): Bot | null {
     const room = this.roomManager.getRoom(roomId);
     if (!room) {
       console.log(`❌ Sala ${roomId} no encontrada para crear bot`);
@@ -94,14 +97,15 @@ export class BotService {
           : null;
 
     // 2. Determinar dificultad: Usar la solicitada, calcularla por Elo o usar fallback
-    let difficulty = requestedDifficulty || room.difficulty;
+    let difficulty =
+      requestedDifficulty || room.difficulty || BOT_CONFIG_GLOBAL.DIFFICULTY;
     if (!difficulty && humanPlayer) {
       difficulty = this.getDifficultyByElo(humanPlayer.elo || 1200);
     }
     if (!difficulty) {
-      difficulty = BOT_CONFIG_GLOBAL.DIFFICULTY || "easy";
+      difficulty = "easy";
     }
-
+    room.difficulty = difficulty;
     const botInstance = this.getBotInstance(difficulty);
 
     // ✅ Asegurar que la instancia use el mismo activeBots
@@ -173,7 +177,6 @@ export class BotService {
       botColor === "w"
         ? room.playerWhite?.socketId
         : room.playerBlack?.socketId;
-    const bot = botSocketId ? this.activeBots.get(botSocketId) : null;
 
     // Si la sala o el bot guardan la dificultad específica, la usamos
     const difficulty =

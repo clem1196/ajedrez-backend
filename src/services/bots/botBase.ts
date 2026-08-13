@@ -1063,58 +1063,36 @@ export abstract class BotBase {
     const thinkingTime = this.getRandomThinkingTime();
     console.log(`🤖 Bot ${bot.nick} está pensando... (${thinkingTime}ms)`);
 
-    bot.thinkingTimer = setTimeout(async () => {
-      try {
-        const fen = room.chessInstance.fen();
+   bot.thinkingTimer = setTimeout(async () => {
+  try {
+    const moves = room.chessInstance.moves({ verbose: true });
+    if (moves.length === 0) return;
 
-        // 🧠 Delegamos la selección del movimiento a la clase hija correspondiente
-        const selectedMove = await this.selectMove(
-          moves,
-          botColor,
-          room.chessInstance,
-        );
+    // Llama directamente al selectMove() de la clase hija (Easy, Medium, Grandmaster)
+    const move = await this.selectMove(moves, botColor, room.chessInstance);
 
-        if (selectedMove) {
-          // Procesa el movimiento (ya sea un objeto {from, to} o un string UCI "e2e4")
-          const movePayload =
-            typeof selectedMove === "string"
-              ? {
-                  from: selectedMove.substring(0, 2),
-                  to: selectedMove.substring(2, 4),
-                  promotion:
-                    selectedMove.length === 5
-                      ? selectedMove.charAt(4)
-                      : undefined,
-                }
-              : selectedMove;
+    if (move) {
+      const result = room.chessInstance.move(move);
+      if (result) {
+        this.io.to(roomId).emit("move_made", {
+          move: result,
+          fen: room.chessInstance.fen(),
+          turn: room.chessInstance.turn(),
+          whiteTime: room.whiteTime,
+          blackTime: room.blackTime,
+          isBotMove: true,
+          botNick: bot.nick,
+        });
 
-          const result = room.chessInstance.move(movePayload);
-
-          if (result) {
-            this.io.to(roomId).emit("move_made", {
-              move: result,
-              fen: room.chessInstance.fen(),
-              turn: room.chessInstance.turn(),
-              whiteTime: room.whiteTime,
-              blackTime: room.blackTime,
-              isBotMove: true,
-              botNick: bot.nick,
-            });
-
-            if (room.chessInstance.isCheckmate()) {
-              await this.handleCheckmate(room, botColor);
-              return;
-            }
-
-            if (room.chessInstance.isStalemate()) {
-              await this.handleStalemate(room);
-              return;
-            }
-          }
+        if (room.chessInstance.isCheckmate()) {
+          await this.handleCheckmate(room, botColor);
+          return;
         }
-      } catch (err) {
-        console.error("❌ Error ejecutando movimiento del Bot:", err);
       }
-    }, thinkingTime);
+    }
+  } catch (err) {
+    console.error("❌ Error en jugada del bot:", err);
+  }
+}, thinkingTime);
   }
 }
