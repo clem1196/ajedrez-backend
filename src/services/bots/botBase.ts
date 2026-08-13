@@ -1064,28 +1064,31 @@ export abstract class BotBase {
     console.log(`🤖 Bot ${bot.nick} está pensando... (${thinkingTime}ms)`);
 
     bot.thinkingTimer = setTimeout(async () => {
-      const fen = room.chessInstance.fen();
-
-      const difficultyConfig: Record<string, { skill: number; depth: number }> =
-        {
-          easy: { skill: 1, depth: 3 }, // 🟢 Novato: Comete errores tácticos reales
-          medium: { skill: 8, depth: 7 }, // 🟡 Intermedio: Jugador aficionado (~1400 Elo)
-          hard: { skill: 15, depth: 11 }, // 🟠 Avanzado: Jugador de club (~1800 Elo)
-          grandmaster: { skill: 20, depth: 16 }, // 🟣 Gran Maestro: Máxima potencia Stockfish
-        };
-      const { skill, depth } =
-        difficultyConfig[this.difficulty] || difficultyConfig.easy;
-
       try {
-        const bestMove = await getBestMove(fen, skill, depth);
-        if (bestMove) {
-          // ✅ CORREGIDO: Asegurar que chess.js procese correctamente el string UCI de Stockfish
-          // Si usas chess.js v1.0.0-beta.6 o superior, acepta la propiedad 'sloppy' u objetos directos
-          const result = room.chessInstance.move({
-            from: bestMove.substring(0, 2),
-            to: bestMove.substring(2, 4),
-            promotion: bestMove.length === 5 ? bestMove.charAt(4) : undefined,
-          });
+        const fen = room.chessInstance.fen();
+
+        // 🧠 Delegamos la selección del movimiento a la clase hija correspondiente
+        const selectedMove = await this.selectMove(
+          moves,
+          botColor,
+          room.chessInstance,
+        );
+
+        if (selectedMove) {
+          // Procesa el movimiento (ya sea un objeto {from, to} o un string UCI "e2e4")
+          const movePayload =
+            typeof selectedMove === "string"
+              ? {
+                  from: selectedMove.substring(0, 2),
+                  to: selectedMove.substring(2, 4),
+                  promotion:
+                    selectedMove.length === 5
+                      ? selectedMove.charAt(4)
+                      : undefined,
+                }
+              : selectedMove;
+
+          const result = room.chessInstance.move(movePayload);
 
           if (result) {
             this.io.to(roomId).emit("move_made", {
@@ -1097,10 +1100,7 @@ export abstract class BotBase {
               isBotMove: true,
               botNick: bot.nick,
             });
-            console.log(
-              `🤖 Bot ${bot.nick} (Stockfish) movió: ${result.from} -> ${result.to}`,
-            );
-            // ♟️ VERIFICAR SI EL BOT HIZO JAQUE MATE O AHOGADO
+
             if (room.chessInstance.isCheckmate()) {
               await this.handleCheckmate(room, botColor);
               return;
@@ -1110,19 +1110,10 @@ export abstract class BotBase {
               await this.handleStalemate(room);
               return;
             }
-          } else {
-            console.error(
-              `⚠️ Stockfish generó un movimiento UCI inválido para chess.js: ${bestMove}`,
-            );
           }
         }
       } catch (err) {
-        console.error("❌ Error al calcular jugada con Stockfish:", err);
-      }
-
-      if (bot.thinkingTimer) {
-        clearTimeout(bot.thinkingTimer);
-        bot.thinkingTimer = undefined;
+        console.error("❌ Error ejecutando movimiento del Bot:", err);
       }
     }, thinkingTime);
   }
