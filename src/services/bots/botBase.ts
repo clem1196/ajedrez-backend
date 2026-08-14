@@ -309,107 +309,133 @@ export abstract class BotBase {
    * Obtiene la mejor jugada mediante Stockfish (stockfishHelper)
    * usando los parámetros de skillLevel y depth definidos en la configuración.
    */
-  public async makeMove(roomId: string, botColor: "w" | "b"): Promise<void> {
-    // 1. Verificar si los bots están habilitados globalmente
-    if (!BOT_CONFIG.ENABLED) {
-      console.log("🤖 Bots deshabilitados por configuración.");
-      return;
-    }
+ public async makeMove(roomId: string, botColor: "w" | "b"): Promise<void> {
+  if (!BOT_CONFIG.ENABLED) {
+    console.log("🤖 Bots deshabilitados por configuración.");
+    return;
+  }
 
+  const room = this.roomManager.getRoom(roomId);
+  if (!room) return;
+  if (room.gameEnded || room.isProcessingEnd) return;
+  if (room.chessInstance.turn() !== botColor) return;
+
+  const moves = room.chessInstance.moves({ verbose: true });
+  if (moves.length === 0) {
+    if (room.chessInstance.isCheckmate()) {
+      await this.handleCheckmate(room, botColor);
+    } else if (room.chessInstance.isStalemate()) {
+      await this.handleStalemate(room);
+    }
+    return;
+  }
+
+  const botSocketId =
+    botColor === "w" ? room.playerWhite.socketId : room.playerBlack.socketId;
+  const bot = this.activeBots.get(botSocketId);
+  if (!bot) return;
+
+  if (bot.thinkingTimer) {
+    clearTimeout(bot.thinkingTimer);
+    bot.thinkingTimer = undefined;
+  }
+
+  const thinkingTime = this.getRandomThinkingTime();
+  console.log(`🤖 Bot ${bot.nick} está pensando... (${thinkingTime}ms)`);
+
+  bot.thinkingTimer = setTimeout(async () => {
+    // 🛑 Verificar que la sala siga activa y el turno sea del bot
     const room = this.roomManager.getRoom(roomId);
-    if (!room) return;
-    if (room.gameEnded || room.isProcessingEnd) return;
-    if (room.chessInstance.turn() !== botColor) return;
-
-    const moves = room.chessInstance.moves({ verbose: true });
-    if (moves.length === 0) {
-      if (room.chessInstance.isCheckmate()) {
-        await this.handleCheckmate(room, botColor);
-      } else if (room.chessInstance.isStalemate()) {
-        await this.handleStalemate(room);
-      }
+    if (!room || room.gameEnded || room.isProcessingEnd || room.chessInstance.turn() !== botColor) {
+      console.log(`⏹️ Bot ${bot.nick} canceló movimiento: sala terminada o turno cambiado.`);
       return;
     }
 
-    // 2. Obtener el objeto bot correspondiente
-    const botSocketId =
-      botColor === "w" ? room.playerWhite.socketId : room.playerBlack.socketId;
-    const bot = this.activeBots.get(botSocketId);
-    if (!bot) return;
+    const fen = room.chessInstance.fen();
+    const { skillLevel, depth } = this.config;
 
-    // 3. Limpiar temporizador anterior si existe
-    if (bot.thinkingTimer) {
-      clearTimeout(bot.thinkingTimer);
-      bot.thinkingTimer = undefined;
-    }
+    try {
+      const bestMove = await getBestMove(fen, skillLevel, depth);
 
-    // 4. Tiempo de pensamiento (configurado + variación)
-    const thinkingTime = this.getRandomThinkingTime();
-    console.log(`🤖 Bot ${bot.nick} está pensando... (${thinkingTime}ms)`);
+      if (bestMove) {
+        const from = bestMove.substring(0, 2);
+        const to = bestMove.substring(2, 4);
+        const promotion = bestMove.length === 5 ? bestMove.charAt(4) : undefined;
 
-    // 5. Programar la jugada
-    bot.thinkingTimer = setTimeout(async () => {
-      const fen = room.chessInstance.fen();
-      const { skillLevel, depth } = this.config;
+        const result = room.chessInstance.move({
+          from,
+          to,
+          promotion,
+        });
 
-      try {
-        // Llamar a Stockfish para obtener la mejor jugada (formato UCI, ej: "e2e4")
-        const bestMove = await getBestMove(fen, skillLevel, depth);
-
-        if (bestMove) {
-          // Convertir el string UCI a un objeto que chess.js pueda procesar
-          const from = bestMove.substring(0, 2);
-          const to = bestMove.substring(2, 4);
-          const promotion =
-            bestMove.length === 5 ? bestMove.charAt(4) : undefined;
-
-          const result = room.chessInstance.move({
-            from,
-            to,
-            promotion,
+        if (result) {
+          this.io.to(roomId).emit("move_made", {
+            move: result,
+            fen: room.chessInstance.fen(),
+            turn: room.chessInstance.turn(),
+            whiteTime: room.whiteTime,
+            blackTime: room.blackTime,
+            isBotMove: true,
+            botNick: bot.nick,
           });
 
-          if (result) {
-            // Notificar movimiento al resto de la sala
-            this.io.to(roomId).emit("move_made", {
-              move: result,
-              fen: room.chessInstance.fen(),
-              turn: room.chessInstance.turn(),
-              whiteTime: room.whiteTime,
-              blackTime: room.blackTime,
-              isBotMove: true,
-              botNick: bot.nick,
-            });
+          console.log(
+            `🤖 Bot ${bot.nick} (${this.config.difficulty}) movió: ${result.from} -> ${result.to}`,
+          );
 
-            console.log(
-              `🤖 Bot ${bot.nick} (${this.config.difficulty}) movió: ${result.from} -> ${result.to}`,
-            );
-
-            // Verificar si el bot ha dado jaque mate o ahogado
-            if (room.chessInstance.isCheckmate()) {
-              await this.handleCheckmate(room, botColor);
-              return;
-            }
-
-            if (room.chessInstance.isStalemate()) {
-              await this.handleStalemate(room);
-              return;
-            }
-          } else {
-            console.error(
-              `⚠️ Movimiento UCI inválido para chess.js: ${bestMove}`,
-            );
+          if (room.chessInstance.isCheckmate()) {
+            await this.handleCheckmate(room, botColor);
+            return;
           }
-        }
-      } catch (err) {
-        console.error("❌ Error al calcular jugada con Stockfish:", err);
-      } finally {
-        // Limpiar el temporizador después de la ejecución
-        if (bot.thinkingTimer) {
-          clearTimeout(bot.thinkingTimer);
-          bot.thinkingTimer = undefined;
+          if (room.chessInstance.isStalemate()) {
+            await this.handleStalemate(room);
+            return;
+          }
+        } else {
+          console.error(`⚠️ Movimiento UCI inválido para chess.js: ${bestMove}`);
         }
       }
-    }, thinkingTime);
-  }
+    } catch (err) {
+      console.error("❌ Error al calcular jugada con Stockfish:", err);
+
+      // 🆘 Fallback: movimiento aleatorio
+      const fallbackMoves = room.chessInstance.moves({ verbose: true });
+      if (fallbackMoves.length > 0) {
+        const randomMove = fallbackMoves[Math.floor(Math.random() * fallbackMoves.length)];
+        const result = room.chessInstance.move({
+          from: randomMove.from,
+          to: randomMove.to,
+          promotion: randomMove.promotion || "q",
+        });
+        if (result) {
+          this.io.to(roomId).emit("move_made", {
+            move: result,
+            fen: room.chessInstance.fen(),
+            turn: room.chessInstance.turn(),
+            whiteTime: room.whiteTime,
+            blackTime: room.blackTime,
+            isBotMove: true,
+            botNick: bot.nick,
+          });
+          console.log(`🤖 Bot ${bot.nick} usó movimiento aleatorio por timeout: ${result.from}->${result.to}`);
+          if (room.chessInstance.isCheckmate()) {
+            await this.handleCheckmate(room, botColor);
+            return;
+          }
+          if (room.chessInstance.isStalemate()) {
+            await this.handleStalemate(room);
+            return;
+          }
+        }
+      } else {
+        console.warn(`⚠️ Bot ${bot.nick} sin movimientos disponibles.`);
+      }
+    } finally {
+      if (bot.thinkingTimer) {
+        clearTimeout(bot.thinkingTimer);
+        bot.thinkingTimer = undefined;
+      }
+    }
+  }, thinkingTime);
+}
 }
