@@ -33,9 +33,9 @@ export async function getBestMove(
       engine.kill();
 
       reject(
-        new Error("Timeout al esperar respuesta de Stockfish Lite (10s)"),
+        new Error("Timeout al esperar respuesta de Stockfish Lite (15s)"),
       );
-    }, 10000);
+    }, 15000);
 
     const finish = (error?: Error, move?: string) => {
       if (finished) return;

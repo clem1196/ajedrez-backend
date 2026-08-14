@@ -64,7 +64,7 @@ export const BOT_LEVELS: Record<string, BotConfig> = {
     elo: 2400,
     difficulty: "grandmaster",
     skillLevel: 20,
-    depth: 18,
+    depth: 14,
     thinkingTimeMs: 2000
   }
 };
