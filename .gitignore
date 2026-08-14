@@ -5,3 +5,4 @@ build/
 src/bin/*.exe
 *.wasm
 *.log
+!engine/stockfish-18-lite-single.wasm
