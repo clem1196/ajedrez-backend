@@ -1,5 +1,4 @@
 // src/services/bots/botEasy.ts
-import { Chess } from "chess.js";
 import { Bot, BotBase } from "./botBase";
 
 export class BotEasy extends BotBase {
@@ -7,18 +6,10 @@ export class BotEasy extends BotBase {
     super(roomManager, io, "easy");
   }
 
-  // ✅ Requerido por la interfaz abstracta
-  protected selectMove(moves: any[], botColor: "w" | "b", chess: Chess): any {
-    return moves[Math.floor(Math.random() * moves.length)];
-  }
-
-  /**
-   * 🎮 Crear un bot fácil (Principiante / Novato)
-   */
   public createBot(roomId: string, botColor: "w" | "b"): Bot {
     const botId = this.generateBotId();
     const botNick = this.getRandomName();
-    const botElo = this.getRandomElo(); // Retorna entre 600 y 1199
+    const botElo = this.getRandomElo(); // Usa la configuración de easy (elo ~800)
 
     const bot: Bot = {
       id: botId,
