@@ -123,11 +123,3 @@ export async function getBestMove(
   });
 }
 
-export function getBotForPlayerElo(playerElo: number): BotConfig {
-  if (playerElo < 1200) return BOT_LEVELS.novice;
-  if (playerElo < 1600) return BOT_LEVELS.intermediate;
-  if (playerElo < 1900) return BOT_LEVELS.veteran;
-  if (playerElo < 2200) return BOT_LEVELS.master;
-
-  return BOT_LEVELS.grandmaster;
-}
