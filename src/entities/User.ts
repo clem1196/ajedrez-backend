@@ -13,7 +13,7 @@ export class User {
   @Column({ unique: true, length: 100 })
   email!: string;
 
-  @Column({ length: 255, nullable: true }) // ✅ Ahora nullable (para login social)
+  @Column({type:'varchar', length: 255, nullable: true }) // ✅ Ahora nullable (para login social)
   password!: string | null;
 
   @Column({ default: false })
