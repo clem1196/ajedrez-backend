@@ -34,6 +34,8 @@ export const sanitizeUser = (user: User) => {
           )
         : 0,
     isAdmin: user.isAdmin || false,
+     authProvider: user.authProvider || 'local',
+     createdAt: user.createdAt,
   };
 };
 

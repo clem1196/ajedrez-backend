@@ -1,8 +1,8 @@
 // src/controllers/userController.ts
-import { Response } from 'express';
+import { Response, Request, NextFunction } from 'express';
 import { AppDataSource } from '../config/dataSource';
 import { UserStats } from '../entities/UserStats';
-import { AuthenticatedRequest } from '../middlewares/authMiddleware';
+
 import { extractString } from '../utils/paramUtil';
 import { sanitizeRanking } from '../utils/sanitizeUtil';
 import { User } from '../entities/User';
@@ -22,7 +22,7 @@ const LEADERBOARD_CONFIG = {
 /**
  * 👑 Devuelve el ranking de jugadores con buscador y paginación
  */
-export const getLeaderboard = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+export const getLeaderboard = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const page = Math.max(1, parseInt(req.query.page as string) || LEADERBOARD_CONFIG.DEFAULT_PAGE);
     let limit = parseInt(req.query.limit as string) || LEADERBOARD_CONFIG.DEFAULT_LIMIT;
@@ -101,7 +101,7 @@ export const getLeaderboard = async (req: AuthenticatedRequest, res: Response): 
 /**
  * 📊 Obtener el top de jugadores (para la página de inicio)
  */
-export const getTopPlayers = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+export const getTopPlayers = async (req: Request, res: Response): Promise<void> => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string) || 5, 10);
 
@@ -135,7 +135,7 @@ export const getTopPlayers = async (req: AuthenticatedRequest, res: Response): P
 /**
  * 📊 Obtener estadísticas de un jugador específico
  */
-export const getPlayerStats = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+export const getPlayerStats = async (req: Request, res: Response): Promise<void> => {
   try {
     const nick = extractString(req.params.nick);
 
@@ -181,7 +181,7 @@ export const getPlayerStats = async (req: AuthenticatedRequest, res: Response): 
 /**
  * 📊 Obtener historial de partidas de un jugador
  */
-export const getPlayerHistory = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+export const getPlayerHistory = async (req: Request, res: Response): Promise<void> => {
   try {
     const nick = extractString(req.params.nick);
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
@@ -260,7 +260,7 @@ async function getUserRank(userId: number, search: string = ''): Promise<number 
 /**
  * 👤 Actualizar el perfil del usuario autenticado (nick / email / password)
  */
-export const updateProfile = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+export const updateProfile = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.userId;
     if (!userId) {

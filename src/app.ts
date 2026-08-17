@@ -1,25 +1,23 @@
 // src/app.ts
 import express, { Application, Request, Response } from 'express';
+import session from 'express-session';
+import passport from './config/passport';
 import authRoutes from './routes/authRoute';
 import userRoutes from './routes/userRoutes';
 import cors from 'cors';
 
 const app: Application = express();
+
+// CORS (sin cambios)
 app.use(cors({
   origin: (origin, callback) => {
-    // 1. Permite peticiones sin origin (Postman, Server-to-Server, etc.)
     if (!origin) return callback(null, true);
-
-    // 2. Lista de orígenes explícitos (Desarrollo local + Tu dominio principal de Vercel)
     const allowedOrigins = [
-      process.env.CORS_ORIGIN, // https://ajedrez-frontend.vercel.app
+      process.env.CORS_ORIGIN,
       'http://localhost:5173',
       'http://localhost:3000'
     ];
-
-    // 3. Permite cualquier subdominio de Vercel perteneciente a tu proyecto (.vercel.app)
     const isVercelPreview = origin.endsWith('.vercel.app');
-
     if (allowedOrigins.includes(origin) || isVercelPreview) {
       callback(null, true);
     } else {
@@ -31,11 +29,26 @@ app.use(cors({
   credentials: true
 }));
 
+// ✅ Configurar sesión (IMPORTANTE: antes de passport)
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'mi-secreto-temporal',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 24 * 60 * 60 * 1000 // 24 horas
+  }
+}));
+
+// ✅ Inicializar Passport
+app.use(passport.initialize());
+app.use(passport.session());
+
 // Middlewares básicos
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Rutas de la aplicación
+// Rutas
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 

@@ -1,5 +1,6 @@
 // src/routes/authRoutes.ts
 import { Router } from 'express';
+import passport from 'passport';
 import { 
   register, 
   login, 
@@ -13,7 +14,7 @@ import { validateUpdateProfile } from '../middlewares/validationMiddleware';
 
 const router = Router();
 
-// ✅ Validaciones
+// ✅ Validaciones (sin cambios)
 const registerValidation = [
   body('nick').trim().isLength({ min: 3, max: 15 }).withMessage('Nick debe tener 3-15 caracteres'),
   body('email').isEmail().withMessage('Email inválido'),
@@ -25,11 +26,80 @@ const loginValidation = [
   body('password').notEmpty().withMessage('Contraseña requerida')
 ];
 
-// ✅ Rutas
+// ✅ Rutas tradicionales (sin cambios)
 router.post('/register', registerValidation, register);
 router.post('/login', loginValidation, login);
 router.get('/me', authenticateJWT, getProfile);
 router.put('/elo', authenticateJWT, updateElo);
 router.put('/profile', authenticateJWT, validateUpdateProfile, updateProfile);
+
+// ✅ NUEVAS RUTAS DE AUTENTICACIÓN SOCIAL
+
+// --- Google ---
+router.get('/auth/google', 
+  passport.authenticate('google', { scope: ['profile', 'email'] })
+);
+
+router.get('/auth/google/callback',
+  passport.authenticate('google', { 
+    failureRedirect: '/login?error=google_failed',
+    successRedirect: '/' 
+  })
+);
+
+// --- Facebook ---
+router.get('/auth/facebook',
+  passport.authenticate('facebook', { scope: ['email'] })
+);
+
+router.get('/auth/facebook/callback',
+  passport.authenticate('facebook', {
+    failureRedirect: '/login?error=facebook_failed',
+    successRedirect: '/'
+  })
+);
+
+// --- Microsoft ---
+router.get('/auth/microsoft',
+  passport.authenticate('microsoft', { 
+    scope: ['openid', 'profile', 'email', 'offline_access']
+  })
+);
+
+router.get('/auth/microsoft/callback',
+  passport.authenticate('microsoft', {
+    failureRedirect: '/login?error=microsoft_failed',
+    successRedirect: '/'
+  })
+);
+
+// --- Cerrar sesión (social) ---
+router.get('/auth/logout', (req, res) => {
+  req.logout((err) => {
+    if (err) {
+      console.error('Error al cerrar sesión:', err);
+      return res.status(500).json({ error: 'Error al cerrar sesión' });
+    }
+    res.redirect('/');
+  });
+});
+
+// --- Endpoint para verificar autenticación social ---
+router.get('/auth/session', (req, res) => {
+  if (req.isAuthenticated()) {
+    const user = req.user as any;
+    res.json({
+      authenticated: true,
+      user: {
+        id: user.id,
+        nick: user.nick,
+        email: user.email,
+        elo: user.elo
+      }
+    });
+  } else {
+    res.json({ authenticated: false });
+  }
+});
 
 export default router;
