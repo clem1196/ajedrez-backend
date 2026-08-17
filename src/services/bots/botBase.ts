@@ -3,11 +3,7 @@ import { Chess } from "chess.js";
 import { RoomManager } from "../../sockets/roomManager";
 import { EloService } from "../../services/eloService";
 import { getBestMove } from "../../helpers/stockfishHelper";
-import {
-  BOT_CONFIG,
-  BOT_LEVELS,
-  BotConfig,
-} from "../../config/botConfig";
+import { BOT_CONFIG, BOT_LEVELS, BotConfig } from "../../config/botConfig";
 
 /**
  * Interfaz que representa un bot dentro de la sala.
@@ -76,7 +72,10 @@ export abstract class BotBase {
     const base = this.config.thinkingTimeMs;
     // Variación de ±20% para que no sea siempre igual
     const variation = Math.floor(base * 0.2);
-    return Math.max(200, base + Math.floor(Math.random() * variation * 2 - variation));
+    return Math.max(
+      200,
+      base + Math.floor(Math.random() * variation * 2 - variation),
+    );
   }
 
   /**
@@ -96,7 +95,8 @@ export abstract class BotBase {
         "Bot_Stockfish",
       ],
     };
-    const names = namesByDifficulty[this.config.difficulty] || namesByDifficulty.easy;
+    const names =
+      namesByDifficulty[this.config.difficulty] || namesByDifficulty.easy;
     return names[Math.floor(Math.random() * names.length)];
   }
 
@@ -107,7 +107,10 @@ export abstract class BotBase {
   public getRandomElo(): number {
     const base = this.config.elo;
     const range = 150; // ±150
-    return Math.max(100, Math.min(3000, base + Math.floor(Math.random() * range * 2 - range)));
+    return Math.max(
+      100,
+      Math.min(3000, base + Math.floor(Math.random() * range * 2 - range)),
+    );
   }
 
   // ──────────────────────────────────────────────
@@ -309,133 +312,146 @@ export abstract class BotBase {
    * Obtiene la mejor jugada mediante Stockfish (stockfishHelper)
    * usando los parámetros de skillLevel y depth definidos en la configuración.
    */
- public async makeMove(roomId: string, botColor: "w" | "b"): Promise<void> {
-  if (!BOT_CONFIG.ENABLED) {
-    console.log("🤖 Bots deshabilitados por configuración.");
-    return;
-  }
-
-  const room = this.roomManager.getRoom(roomId);
-  if (!room) return;
-  if (room.gameEnded || room.isProcessingEnd) return;
-  if (room.chessInstance.turn() !== botColor) return;
-
-  const moves = room.chessInstance.moves({ verbose: true });
-  if (moves.length === 0) {
-    if (room.chessInstance.isCheckmate()) {
-      await this.handleCheckmate(room, botColor);
-    } else if (room.chessInstance.isStalemate()) {
-      await this.handleStalemate(room);
-    }
-    return;
-  }
-
-  const botSocketId =
-    botColor === "w" ? room.playerWhite.socketId : room.playerBlack.socketId;
-  const bot = this.activeBots.get(botSocketId);
-  if (!bot) return;
-
-  if (bot.thinkingTimer) {
-    clearTimeout(bot.thinkingTimer);
-    bot.thinkingTimer = undefined;
-  }
-
-  const thinkingTime = this.getRandomThinkingTime();
-  console.log(`🤖 Bot ${bot.nick} está pensando... (${thinkingTime}ms)`);
-
-  bot.thinkingTimer = setTimeout(async () => {
-    // 🛑 Verificar que la sala siga activa y el turno sea del bot
-    const room = this.roomManager.getRoom(roomId);
-    if (!room || room.gameEnded || room.isProcessingEnd || room.chessInstance.turn() !== botColor) {
-      console.log(`⏹️ Bot ${bot.nick} canceló movimiento: sala terminada o turno cambiado.`);
+  public async makeMove(roomId: string, botColor: "w" | "b"): Promise<void> {
+    if (!BOT_CONFIG.ENABLED) {
+      console.log("🤖 Bots deshabilitados por configuración.");
       return;
     }
 
-    const fen = room.chessInstance.fen();
-    const { skillLevel, depth } = this.config;
+    const room = this.roomManager.getRoom(roomId);
+    if (!room) return;
+    if (room.gameEnded || room.isProcessingEnd) return;
+    if (room.chessInstance.turn() !== botColor) return;
 
-    try {
-      const bestMove = await getBestMove(fen, skillLevel, depth);
+    const moves = room.chessInstance.moves({ verbose: true });
+    if (moves.length === 0) {
+      if (room.chessInstance.isCheckmate()) {
+        await this.handleCheckmate(room, botColor);
+      } else if (room.chessInstance.isStalemate()) {
+        await this.handleStalemate(room);
+      }
+      return;
+    }
 
-      if (bestMove) {
-        const from = bestMove.substring(0, 2);
-        const to = bestMove.substring(2, 4);
-        const promotion = bestMove.length === 5 ? bestMove.charAt(4) : undefined;
+    const botSocketId =
+      botColor === "w" ? room.playerWhite.socketId : room.playerBlack.socketId;
+    const bot = this.activeBots.get(botSocketId);
+    if (!bot) return;
 
-        const result = room.chessInstance.move({
-          from,
-          to,
-          promotion,
-        });
+    if (bot.thinkingTimer) {
+      clearTimeout(bot.thinkingTimer);
+      bot.thinkingTimer = undefined;
+    }
 
-        if (result) {
-          this.io.to(roomId).emit("move_made", {
-            move: result,
-            fen: room.chessInstance.fen(),
-            turn: room.chessInstance.turn(),
-            whiteTime: room.whiteTime,
-            blackTime: room.blackTime,
-            isBotMove: true,
-            botNick: bot.nick,
+    const thinkingTime = this.getRandomThinkingTime();
+    console.log(`🤖 Bot ${bot.nick} está pensando... (${thinkingTime}ms)`);
+
+    bot.thinkingTimer = setTimeout(async () => {
+      // 🛑 Verificar que la sala siga activa y el turno sea del bot
+      const room = this.roomManager.getRoom(roomId);
+      if (
+        !room ||
+        room.gameEnded ||
+        room.isProcessingEnd ||
+        room.chessInstance.turn() !== botColor
+      ) {
+        console.log(
+          `⏹️ Bot ${bot.nick} canceló movimiento: sala terminada o turno cambiado.`,
+        );
+        return;
+      }
+
+      const fen = room.chessInstance.fen();
+      const { skillLevel, depth } = this.config;
+
+      try {
+        const bestMove = await getBestMove(fen, skillLevel, depth);
+
+        if (bestMove) {
+          const from = bestMove.substring(0, 2);
+          const to = bestMove.substring(2, 4);
+          const promotion =
+            bestMove.length === 5 ? bestMove.charAt(4) : undefined;
+
+          const result = room.chessInstance.move({
+            from,
+            to,
+            promotion,
           });
 
-          console.log(
-            `🤖 Bot ${bot.nick} (${this.config.difficulty}) movió: ${result.from} -> ${result.to}`,
-          );
+          if (result) {
+            this.io.to(roomId).emit("move_made", {
+              move: result,
+              fen: room.chessInstance.fen(),
+              turn: room.chessInstance.turn(),
+              whiteTime: room.whiteTime,
+              blackTime: room.blackTime,
+              isBotMove: true,
+              botNick: bot.nick,
+            });
 
-          if (room.chessInstance.isCheckmate()) {
-            await this.handleCheckmate(room, botColor);
-            return;
+            console.log(
+              `🤖 Bot ${bot.nick} (${this.config.difficulty}) movió: ${result.from} -> ${result.to}`,
+            );
+
+            if (room.chessInstance.isCheckmate()) {
+              await this.handleCheckmate(room, botColor);
+              return;
+            }
+            if (room.chessInstance.isStalemate()) {
+              await this.handleStalemate(room);
+              return;
+            }
+          } else {
+            console.error(
+              `⚠️ Movimiento UCI inválido para chess.js: ${bestMove}`,
+            );
           }
-          if (room.chessInstance.isStalemate()) {
-            await this.handleStalemate(room);
-            return;
+        }
+      } catch (err) {
+        console.error("❌ Error al calcular jugada con Stockfish:", err);
+
+        // 🆘 Fallback: movimiento aleatorio
+        const fallbackMoves = room.chessInstance.moves({ verbose: true });
+        if (fallbackMoves.length > 0) {
+          const randomMove =
+            fallbackMoves[Math.floor(Math.random() * fallbackMoves.length)];
+          const result = room.chessInstance.move({
+            from: randomMove.from,
+            to: randomMove.to,
+            promotion: randomMove.promotion || "q",
+          });
+          if (result) {
+            this.io.to(roomId).emit("move_made", {
+              move: result,
+              fen: room.chessInstance.fen(),
+              turn: room.chessInstance.turn(),
+              whiteTime: room.whiteTime,
+              blackTime: room.blackTime,
+              isBotMove: true,
+              botNick: bot.nick,
+            });
+            console.log(
+              `🤖 Bot ${bot.nick} usó movimiento aleatorio por timeout: ${result.from}->${result.to}`,
+            );
+            if (room.chessInstance.isCheckmate()) {
+              await this.handleCheckmate(room, botColor);
+              return;
+            }
+            if (room.chessInstance.isStalemate()) {
+              await this.handleStalemate(room);
+              return;
+            }
           }
         } else {
-          console.error(`⚠️ Movimiento UCI inválido para chess.js: ${bestMove}`);
+          console.warn(`⚠️ Bot ${bot.nick} sin movimientos disponibles.`);
+        }
+      } finally {
+        if (bot.thinkingTimer) {
+          clearTimeout(bot.thinkingTimer);
+          bot.thinkingTimer = undefined;
         }
       }
-    } catch (err) {
-      console.error("❌ Error al calcular jugada con Stockfish:", err);
-
-      // 🆘 Fallback: movimiento aleatorio
-      const fallbackMoves = room.chessInstance.moves({ verbose: true });
-      if (fallbackMoves.length > 0) {
-        const randomMove = fallbackMoves[Math.floor(Math.random() * fallbackMoves.length)];
-        const result = room.chessInstance.move({
-          from: randomMove.from,
-          to: randomMove.to,
-          promotion: randomMove.promotion || "q",
-        });
-        if (result) {
-          this.io.to(roomId).emit("move_made", {
-            move: result,
-            fen: room.chessInstance.fen(),
-            turn: room.chessInstance.turn(),
-            whiteTime: room.whiteTime,
-            blackTime: room.blackTime,
-            isBotMove: true,
-            botNick: bot.nick,
-          });
-          console.log(`🤖 Bot ${bot.nick} usó movimiento aleatorio por timeout: ${result.from}->${result.to}`);
-          if (room.chessInstance.isCheckmate()) {
-            await this.handleCheckmate(room, botColor);
-            return;
-          }
-          if (room.chessInstance.isStalemate()) {
-            await this.handleStalemate(room);
-            return;
-          }
-        }
-      } else {
-        console.warn(`⚠️ Bot ${bot.nick} sin movimientos disponibles.`);
-      }
-    } finally {
-      if (bot.thinkingTimer) {
-        clearTimeout(bot.thinkingTimer);
-        bot.thinkingTimer = undefined;
-      }
-    }
-  }, thinkingTime);
-}
+    }, thinkingTime);
+  }
 }
