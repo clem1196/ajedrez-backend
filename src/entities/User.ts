@@ -7,29 +7,28 @@ export class User {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ unique: true, length: 50 })
+  @Column({ type: 'varchar', length: 50, unique: true })
   nick!: string;
 
-  @Column({ unique: true, length: 100 })
+  @Column({ type: 'varchar', length: 100, unique: true })
   email!: string;
 
-  @Column({type:'varchar', length: 255, nullable: true }) // ✅ Ahora nullable (para login social)
+  @Column({ type: 'varchar', length: 255, nullable: true })
   password!: string | null;
 
-  @Column({ default: false })
+  @Column({ type: 'boolean', default: false })
   isAdmin!: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamp' })
   createdAt!: Date;
 
-  // ✅ NUEVOS CAMPOS PARA AUTH SOCIAL
-  @Column({ nullable: true, unique: true })
+  @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
   googleId!: string | null;
 
-  @Column({ nullable: true, unique: true })
+  @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
   facebookId!: string | null;
 
-  @Column({ nullable: true, unique: true })
+  @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
   microsoftId!: string | null;
 
   @Column({ 
@@ -39,10 +38,9 @@ export class User {
   })
   authProvider!: string;
 
-  @Column({ nullable: true })
-  lastLogin!: Date;
+  @Column({ type: 'timestamp', nullable: true })
+  lastLogin!: Date | null;
 
-  // ✅ Relación con stats (sin cambios)
   @OneToOne(() => UserStats, (stats) => stats.user, { cascade: true })
   stats!: UserStats;
 }
