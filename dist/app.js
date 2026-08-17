@@ -5,24 +5,54 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 // src/app.ts
 const express_1 = __importDefault(require("express"));
+const express_session_1 = __importDefault(require("express-session"));
+const passport_1 = __importDefault(require("./config/passport"));
 const authRoute_1 = __importDefault(require("./routes/authRoute"));
 const userRoutes_1 = __importDefault(require("./routes/userRoutes"));
 const cors_1 = __importDefault(require("cors"));
 const app = (0, express_1.default)();
-// 💡 2. Configurar el middleware de CORS antes de tus rutas
+// CORS (sin cambios)
 app.use((0, cors_1.default)({
-    origin: 'http://localhost:5173', // ✅ Permite peticiones explícitamente desde tu frontend de Vue
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Permite los métodos necesarios
-    allowedHeaders: ['Content-Type', 'Authorization'], // Permites las cabeceras comunes
-    credentials: true // Por si a futuro manejas cookies o sesiones
+    origin: (origin, callback) => {
+        if (!origin)
+            return callback(null, true);
+        const allowedOrigins = [
+            process.env.CORS_ORIGIN,
+            'http://localhost:5173',
+            'http://localhost:3000'
+        ];
+        const isVercelPreview = origin.endsWith('.vercel.app');
+        if (allowedOrigins.includes(origin) || isVercelPreview) {
+            callback(null, true);
+        }
+        else {
+            callback(new Error(`CORS bloqueado para el origen: ${origin}`));
+        }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
 }));
+// ✅ Configurar sesión (IMPORTANTE: antes de passport)
+app.use((0, express_session_1.default)({
+    secret: process.env.SESSION_SECRET || 'mi-secreto-temporal',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000 // 24 horas
+    }
+}));
+// ✅ Inicializar Passport
+app.use(passport_1.default.initialize());
+app.use(passport_1.default.session());
 // Middlewares básicos
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
-// 💡 Conectamos las rutas del CRUD/Autenticación de usuarios
+// Rutas
 app.use('/api/auth', authRoute_1.default);
 app.use('/api/users', userRoutes_1.default);
-// Ruta de prueba para verificar que la API responde
+// Ruta de prueba
 app.get('/api/health', (req, res) => {
     res.json({ status: 'OK', message: 'Servidor de Ajedrez corriendo correctamente' });
 });

@@ -45,8 +45,7 @@ passport.use(new GoogleStrategy({
         googleId: profile.id,
         email: profile.emails?.[0]?.value,
         nick: profile.displayName || profile.name?.givenName || 'Usuario',
-        password: null,
-        isBot: false,
+        password: null,       
         authProvider: 'google',
         lastLogin: new Date()
       });
@@ -89,8 +88,7 @@ passport.use(new FacebookStrategy({
         facebookId: profile.id,
         email: profile.emails?.[0]?.value,
         nick: profile.displayName || 'Usuario',
-        password: null,
-        isBot: false,
+        password: null,       
         authProvider: 'facebook',
         lastLogin: new Date()
       });
@@ -132,8 +130,7 @@ passport.use(new MicrosoftStrategy({
         microsoftId: profile.id,
         email: email,
         nick: profile.DisplayName || profile.displayName || 'Usuario',
-        password: null,
-        isBot: false,
+        password: null,      
         authProvider: 'microsoft',
         lastLogin: new Date()
       });

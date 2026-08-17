@@ -20,7 +20,13 @@ let User = class User {
     password;
     isAdmin;
     createdAt;
-    // ✅ CORREGIDO: Relación 1 a 1 con UserStats
+    // ✅ NUEVOS CAMPOS PARA AUTH SOCIAL
+    googleId;
+    facebookId;
+    microsoftId;
+    authProvider;
+    lastLogin;
+    // ✅ Relación con stats (sin cambios)
     stats;
 };
 exports.User = User;
@@ -37,18 +43,42 @@ __decorate([
     __metadata("design:type", String)
 ], User.prototype, "email", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ length: 255 }),
-    __metadata("design:type", String)
+    (0, typeorm_1.Column)({ length: 255, nullable: true }) // ✅ Ahora nullable (para login social)
+    ,
+    __metadata("design:type", Object)
 ], User.prototype, "password", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ default: false }) // ✅ Nuevo campo
-    ,
+    (0, typeorm_1.Column)({ default: false }),
     __metadata("design:type", Boolean)
 ], User.prototype, "isAdmin", void 0);
 __decorate([
     (0, typeorm_1.CreateDateColumn)(),
     __metadata("design:type", Date)
 ], User.prototype, "createdAt", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ nullable: true, unique: true }),
+    __metadata("design:type", Object)
+], User.prototype, "googleId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ nullable: true, unique: true }),
+    __metadata("design:type", Object)
+], User.prototype, "facebookId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ nullable: true, unique: true }),
+    __metadata("design:type", Object)
+], User.prototype, "microsoftId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({
+        type: 'enum',
+        enum: ['local', 'google', 'facebook', 'microsoft'],
+        default: 'local'
+    }),
+    __metadata("design:type", String)
+], User.prototype, "authProvider", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ nullable: true }),
+    __metadata("design:type", Date)
+], User.prototype, "lastLogin", void 0);
 __decorate([
     (0, typeorm_1.OneToOne)(() => UserStats_1.UserStats, (stats) => stats.user, { cascade: true }),
     __metadata("design:type", UserStats_1.UserStats)

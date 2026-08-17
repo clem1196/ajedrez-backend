@@ -15,7 +15,7 @@ const userRepository = dataSource_1.AppDataSource.getRepository(User_1.User);
 // ✅ Constantes de configuración
 const AUTH_CONFIG = {
     SALT_ROUNDS: 10,
-    TOKEN_EXPIRY: '7d',
+    TOKEN_EXPIRY: "7d",
     DEFAULT_ELO: 1200,
     ELO_CHANGE_WIN: 16, // Cambio estándar por victoria/derrota
     MIN_ELO: 100,
@@ -25,7 +25,6 @@ const AUTH_CONFIG = {
  */
 const register = async (req, res) => {
     try {
-        // ✅ Validar campos
         const errors = (0, express_validator_1.validationResult)(req);
         if (!errors.isEmpty()) {
             res.status(400).json({
@@ -35,10 +34,8 @@ const register = async (req, res) => {
             return;
         }
         const { nick, email, password, initialElo } = req.body;
-        // ✅ Normalizar datos
         const normalizedNick = nick.trim();
         const normalizedEmail = email.trim().toLowerCase();
-        // ✅ Verificar si el nick o el email ya existen
         const [existingNick, existingEmail] = await Promise.all([
             userRepository.findOne({ where: { nick: normalizedNick } }),
             userRepository.findOne({ where: { email: normalizedEmail } })
@@ -55,32 +52,31 @@ const register = async (req, res) => {
             });
             return;
         }
-        // ✅ Cifrar la contraseña
         const hashedPassword = await bcrypt_1.default.hash(password, AUTH_CONFIG.SALT_ROUNDS);
-        // ✅ Crear usuario
         const newUser = new User_1.User();
         newUser.nick = normalizedNick;
         newUser.email = normalizedEmail;
         newUser.password = hashedPassword;
-        // ✅ Crear estadísticas con el Elo heredado
+        newUser.authProvider = 'local'; // ✅ IMPORTANTE
+        newUser.lastLogin = new Date();
+        // Crear estadísticas
         const newStats = new UserStats_1.UserStats();
         const incomingElo = Number(initialElo) || AUTH_CONFIG.DEFAULT_ELO;
-        // ✅ Calcular Elo final y estadísticas iniciales
         const { finalElo, initialWins, initialLosses } = calculateInitialStats(incomingElo);
         newStats.elo = finalElo;
         newStats.wins = initialWins;
         newStats.losses = initialLosses;
         newStats.draws = 0;
         newUser.stats = newStats;
-        // ✅ Guardar en la Base de Datos
         await userRepository.save(newUser);
-        console.log(`📝 Nuevo usuario registrado: ${normalizedNick} (Elo: ${finalElo})`);
+        console.log(`📝 Nuevo usuario registrado: ${normalizedNick} (Elo: ${finalElo}, auth: local)`);
         res.status(201).json({
             status: 'success',
             message: `¡Cuenta creada exitosamente! Tu Elo inicial es ${finalElo}.`,
             user: {
                 nick: normalizedNick,
                 elo: finalElo,
+                authProvider: 'local'
             }
         });
     }
@@ -100,42 +96,58 @@ const login = async (req, res) => {
         const { email, password } = req.body;
         const user = await userRepository.findOne({
             where: { email: email.trim().toLowerCase() },
-            relations: ['stats'],
+            relations: ["stats"],
         });
         if (!user) {
             res.status(401).json({
-                message: 'Credenciales inválidas. Verifica tu email y contraseña.'
+                message: "Credenciales inválidas. Verifica tu email y contraseña.",
+            });
+            return;
+        }
+        // ✅ Verificar que el usuario tenga contraseña (no es social)
+        if (user.authProvider !== "local") {
+            res.status(401).json({
+                message: `Esta cuenta usa autenticación con ${user.authProvider}. Por favor, inicia sesión con ese método.`,
+            });
+            return;
+        }
+        // ✅ Verificar contraseña (ahora puede ser null, pero en local siempre existe)
+        if (!user.password) {
+            res.status(401).json({
+                message: "Esta cuenta no tiene contraseña configurada. Usa el método de autenticación social.",
             });
             return;
         }
         const isMatch = await bcrypt_1.default.compare(password, user.password);
         if (!isMatch) {
             res.status(401).json({
-                message: 'Credenciales inválidas. Verifica tu email y contraseña.'
+                message: "Credenciales inválidas. Verifica tu email y contraseña.",
             });
             return;
         }
-        const jwtSecret = process.env.JWT_SECRET || 'fallback_secret_key';
+        // ✅ Actualizar último login
+        user.lastLogin = new Date();
+        await userRepository.save(user);
+        const jwtSecret = process.env.JWT_SECRET || "fallback_secret_key";
         const token = jsonwebtoken_1.default.sign({
             userId: user.id,
             nick: user.nick,
             email: user.email,
             elo: user.stats?.elo || AUTH_CONFIG.DEFAULT_ELO,
-            isAdmin: user.isAdmin || false
+            isAdmin: user.isAdmin || false,
+            authProvider: user.authProvider || "local",
         }, jwtSecret, { expiresIn: AUTH_CONFIG.TOKEN_EXPIRY });
-        // ✅ Usar sanitizeUser
         res.json({
-            status: 'success',
+            status: "success",
             token,
             user: (0, sanitizeUtil_1.sanitizeUser)(user),
         });
-        console.log(`🔐 Usuario logueado: ${user.nick} (Elo: ${user.stats?.elo || AUTH_CONFIG.DEFAULT_ELO})`);
-        console.log(`   🛡️ Admin: ${user.isAdmin ? '✅ Sí' : '❌ No'}`);
+        console.log(`🔐 Usuario logueado: ${user.nick} (${user.authProvider})`);
     }
     catch (error) {
-        console.error('❌ Error en el login:', error);
+        console.error("❌ Error en el login:", error);
         res.status(500).json({
-            message: 'Error interno del servidor al iniciar sesión.'
+            message: "Error interno del servidor al iniciar sesión.",
         });
     }
 };
@@ -145,28 +157,28 @@ exports.login = login;
  */
 const getProfile = async (req, res) => {
     try {
-        const userId = req.userId || req.user?.userId;
+        const userId = req.userId || req.userId;
         if (!userId) {
-            res.status(401).json({ message: 'Usuario no autenticado.' });
+            res.status(401).json({ message: "Usuario no autenticado." });
             return;
         }
         const user = await userRepository.findOne({
             where: { id: userId },
-            relations: ['stats'],
+            relations: ["stats"],
         });
         if (!user) {
-            res.status(404).json({ message: 'Usuario no encontrado.' });
+            res.status(404).json({ message: "Usuario no encontrado." });
             return;
         }
         res.json({
-            status: 'success',
+            status: "success",
             user: (0, sanitizeUtil_1.sanitizeUser)(user),
         });
     }
     catch (error) {
-        console.error('❌ Error obteniendo perfil:', error);
+        console.error("❌ Error obteniendo perfil:", error);
         res.status(500).json({
-            message: 'Error interno del servidor.'
+            message: "Error interno del servidor.",
         });
     }
 };
@@ -175,79 +187,108 @@ exports.getProfile = getProfile;
  */
 const updateProfile = async (req, res) => {
     try {
-        const userId = req.userId || req.user?.userId;
+        const userId = req.userId;
         const { nick, email, currentPassword, newPassword } = req.body;
         if (!userId) {
-            res.status(401).json({ message: 'Usuario no autenticado.' });
+            res.status(401).json({ message: "Usuario no autenticado." });
             return;
         }
-        // ✅ Buscar usuario
+        // Buscar usuario con sus estadísticas
         const user = await userRepository.findOne({
             where: { id: userId },
-            relations: ['stats'],
+            relations: ["stats"],
         });
         if (!user) {
-            res.status(404).json({ message: 'Usuario no encontrado.' });
+            res.status(404).json({ message: "Usuario no encontrado." });
             return;
         }
-        // ✅ Si se quiere cambiar la contraseña, verificar la actual
-        if (newPassword) {
-            if (!currentPassword) {
+        // ✅ Verificar si es usuario social (no tiene contraseña)
+        const isSocialUser = user.authProvider !== "local";
+        // --- 1. Cambio de contraseña (solo para usuarios locales) ---
+        if (newPassword || currentPassword) {
+            if (isSocialUser) {
                 res.status(400).json({
-                    message: 'La contraseña actual es requerida para cambiar la contraseña.'
+                    message: `Las cuentas con autenticación ${user.authProvider} no pueden cambiar la contraseña.`,
                 });
                 return;
             }
-            const isMatch = await bcrypt_1.default.compare(currentPassword, user.password);
-            if (!isMatch) {
-                res.status(400).json({
-                    message: 'La contraseña actual es incorrecta.'
-                });
-                return;
+            // Si se quiere cambiar la contraseña, verificar la actual
+            if (newPassword) {
+                if (!currentPassword) {
+                    res.status(400).json({
+                        message: "La contraseña actual es requerida para cambiar la contraseña.",
+                    });
+                    return;
+                }
+                const isMatch = await bcrypt_1.default.compare(currentPassword, user.password);
+                if (!isMatch) {
+                    res.status(400).json({
+                        message: "La contraseña actual es incorrecta.",
+                    });
+                    return;
+                }
+                // Cifrar nueva contraseña
+                const hashedPassword = await bcrypt_1.default.hash(newPassword, AUTH_CONFIG.SALT_ROUNDS);
+                user.password = hashedPassword;
             }
-            // ✅ Cifrar nueva contraseña
-            const hashedPassword = await bcrypt_1.default.hash(newPassword, AUTH_CONFIG.SALT_ROUNDS);
-            user.password = hashedPassword;
         }
-        // ✅ Actualizar nick si se proporciona
-        if (nick) {
-            // Verificar que el nick no esté en uso por otro usuario
-            const existingUser = await userRepository.findOne({
-                where: { nick: nick.trim() }
-            });
-            if (existingUser && existingUser.id !== userId) {
-                res.status(400).json({
-                    message: 'El nombre de usuario (Nick) ya está en uso por otro jugador.'
-                });
-                return;
-            }
-            user.nick = nick.trim();
-        }
-        // ✅ Actualizar email si se proporciona
+        // --- 2. Cambio de email (solo para usuarios locales) ---
         if (email) {
+            if (isSocialUser) {
+                res.status(400).json({
+                    message: "Las cuentas con autenticación social no pueden cambiar su correo electrónico.",
+                });
+                return;
+            }
             const existingUser = await userRepository.findOne({
-                where: { email: email.trim().toLowerCase() }
+                where: { email: email.trim().toLowerCase() },
             });
             if (existingUser && existingUser.id !== userId) {
                 res.status(400).json({
-                    message: 'El correo electrónico ya está registrado por otro usuario.'
+                    message: "El correo electrónico ya está registrado por otro usuario.",
                 });
                 return;
             }
             user.email = email.trim().toLowerCase();
         }
-        // ✅ Guardar cambios
+        // --- 3. Cambio de nick (todos los usuarios pueden) ---
+        if (nick) {
+            const existingUser = await userRepository.findOne({
+                where: { nick: nick.trim() },
+            });
+            if (existingUser && existingUser.id !== userId) {
+                res.status(400).json({
+                    message: "El nombre de usuario (Nick) ya está en uso por otro jugador.",
+                });
+                return;
+            }
+            user.nick = nick.trim();
+        }
+        // ✅ Actualizar último login
+        user.lastLogin = new Date();
+        // Guardar cambios
         await userRepository.save(user);
+        // ✅ Generar nuevo token con datos actualizados
+        const jwtSecret = process.env.JWT_SECRET || "fallback_secret_key";
+        const token = jsonwebtoken_1.default.sign({
+            userId: user.id,
+            nick: user.nick,
+            email: user.email,
+            elo: user.stats?.elo || AUTH_CONFIG.DEFAULT_ELO,
+            isAdmin: user.isAdmin || false,
+            authProvider: user.authProvider || "local",
+        }, jwtSecret, { expiresIn: AUTH_CONFIG.TOKEN_EXPIRY });
         res.json({
-            status: 'success',
-            message: 'Perfil actualizado correctamente.',
+            status: "success",
+            message: "Perfil actualizado correctamente.",
+            token,
             user: (0, sanitizeUtil_1.sanitizeUser)(user),
         });
     }
     catch (error) {
-        console.error('❌ Error al actualizar perfil:', error);
+        console.error("❌ Error al actualizar perfil:", error);
         res.status(500).json({
-            message: 'Error interno del servidor al actualizar el perfil.'
+            message: "Error interno del servidor al actualizar el perfil.",
         });
     }
 };
@@ -257,40 +298,40 @@ exports.updateProfile = updateProfile;
  */
 const updateElo = async (req, res) => {
     try {
-        const userId = req.userId || req.user?.userId;
+        const userId = req.userId || req.userId;
         const { newElo, result } = req.body;
         if (!userId) {
-            res.status(401).json({ message: 'Usuario no autenticado.' });
+            res.status(401).json({ message: "Usuario no autenticado." });
             return;
         }
         const user = await userRepository.findOne({
             where: { id: userId },
-            relations: ['stats'],
+            relations: ["stats"],
         });
         if (!user || !user.stats) {
-            res.status(404).json({ message: 'Usuario no encontrado.' });
+            res.status(404).json({ message: "Usuario no encontrado." });
             return;
         }
         // ✅ Actualizar Elo
         user.stats.elo = Math.max(100, newElo);
         // ✅ Actualizar estadísticas según resultado
-        if (result === 'win')
+        if (result === "win")
             user.stats.wins += 1;
-        else if (result === 'loss')
+        else if (result === "loss")
             user.stats.losses += 1;
-        else if (result === 'draw')
+        else if (result === "draw")
             user.stats.draws += 1;
         await userRepository.save(user);
         res.json({
-            status: 'success',
-            message: 'Estadísticas actualizadas correctamente.',
+            status: "success",
+            message: "Estadísticas actualizadas correctamente.",
             elo: user.stats.elo,
         });
     }
     catch (error) {
-        console.error('❌ Error actualizando Elo:', error);
+        console.error("❌ Error actualizando Elo:", error);
         res.status(500).json({
-            message: 'Error interno del servidor.'
+            message: "Error interno del servidor.",
         });
     }
 };

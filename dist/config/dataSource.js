@@ -16,6 +16,9 @@ exports.AppDataSource = new typeorm_1.DataSource({
     synchronize: true, // 💡 Auto-crea o actualiza las tablas al levantar el servidor (Ideal para desarrollo)
     logging: false,
     entities: [User_1.User, UserStats_1.UserStats, GameHistory_1.GameHistory],
+    ssl: {
+        rejectUnauthorized: false
+    },
     subscribers: [],
     migrations: [],
 });

@@ -6,7 +6,6 @@ import { AppDataSource } from "../config/dataSource";
 import { User } from "../entities/User";
 import { UserStats } from "../entities/UserStats";
 import { validationResult } from "express-validator";
-import { AuthenticatedRequest } from "../middlewares/authMiddleware";
 import { sanitizeUser } from "../utils/sanitizeUtil";
 
 const userRepository = AppDataSource.getRepository(User);
@@ -178,11 +177,11 @@ export const login = async (req: Request, res: Response): Promise<void> => {
  * 👤 Obtener perfil del usuario autenticado
  */
 export const getProfile = async (
-  req: AuthenticatedRequest,
+  req: Request,
   res: Response,
 ): Promise<void> => {
   try {
-    const userId = req.userId || req.user?.userId;
+    const userId = req.userId || req.userId;
 
     if (!userId) {
       res.status(401).json({ message: "Usuario no autenticado." });
@@ -212,11 +211,11 @@ export const getProfile = async (
 /* 👤 Actualizar perfil de usuario
  */
 export const updateProfile = async (
-  req: AuthenticatedRequest,
+  req: Request,
   res: Response,
 ): Promise<void> => {
   try {
-    const userId = req.userId || req.user?.userId;
+    const userId = req.userId;
     const { nick, email, currentPassword, newPassword } = req.body;
 
     if (!userId) {
@@ -357,11 +356,11 @@ export const updateProfile = async (
  * 🔄 Actualizar Elo del usuario después de una partida
  */
 export const updateElo = async (
-  req: AuthenticatedRequest,
+  req: Request,
   res: Response,
 ): Promise<void> => {
   try {
-    const userId = req.userId || req.user?.userId;
+    const userId = req.userId || req.userId;
     const { newElo, result } = req.body;
 
     if (!userId) {
