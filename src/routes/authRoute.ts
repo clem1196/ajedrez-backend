@@ -17,8 +17,7 @@ const router = Router();
 
 // Base URL del frontend priorizando FRONTEND_URL y luego CORS_ORIGIN
 const FRONTEND_URL =
-  process.env.FRONTEND_URL ||
-  process.env.CORS_ORIGIN ||
+  process.env.FRONTEND_URL ||  
   "https://ajedrez-frontend.vercel.app";
 
 // ✅ Validaciones
