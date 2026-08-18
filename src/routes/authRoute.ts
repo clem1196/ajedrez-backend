@@ -1,6 +1,7 @@
 // src/routes/authRoutes.ts
 import { Router } from 'express';
 import passport from 'passport';
+import jwt from 'jsonwebtoken';
 import { 
   register, 
   login, 
@@ -34,6 +35,21 @@ router.put('/elo', authenticateJWT, updateElo);
 router.put('/profile', authenticateJWT, validateUpdateProfile, updateProfile);
 
 // ✅ NUEVAS RUTAS DE AUTENTICACIÓN SOCIAL
+// Configuración de callbacks para emitir JWT al frontend
+const handleOAuthCallback = (provider: string) => {
+  return (req: any, res: any) => {
+    // Generar el token JWT con la información del usuario deserializado[cite: 1]
+    const token = jwt.sign(
+      { id: req.user.id, email: req.user.email },
+      process.env.JWT_SECRET || 'secreto_jwt',
+      { expiresIn: '7d' }
+    );
+
+    // Redirigir al Frontend pasando el token como query param[cite: 1]
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    res.redirect(`${frontendUrl}/auth/success?token=${token}`);
+  };
+};
 
 // --- Google ---
 router.get('/google', 
@@ -47,30 +63,25 @@ router.get('/google/callback',
   })
 );
 
-// --- Facebook ---
-router.get('/facebook',
-  passport.authenticate('facebook', { scope: ['email'] })
+// --- Google ---
+router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+router.get('/google/callback', 
+  passport.authenticate('google', { failureRedirect: '/login?error=google_failed', session: false }),
+  (req, res) => handleOAuthCallback('google')(req, res)
 );
 
+// --- Facebook ---
+router.get('/facebook', passport.authenticate('facebook', { scope: ['email'] }));
 router.get('/facebook/callback',
-  passport.authenticate('facebook', {
-    failureRedirect: '/login?error=facebook_failed',
-    successRedirect: '/'
-  })
+  passport.authenticate('facebook', { failureRedirect: '/login?error=facebook_failed', session: false }),
+  (req, res) => handleOAuthCallback('facebook')(req, res)
 );
 
 // --- Microsoft ---
-router.get('/microsoft',
-  passport.authenticate('microsoft', { 
-    scope: ['openid', 'profile', 'email', 'offline_access']
-  })
-);
-
+router.get('/microsoft', passport.authenticate('microsoft', { scope: ['openid', 'profile', 'email', 'offline_access'] }));
 router.get('/microsoft/callback',
-  passport.authenticate('microsoft', {
-    failureRedirect: '/login?error=microsoft_failed',
-    successRedirect: '/'
-  })
+  passport.authenticate('microsoft', { failureRedirect: '/login?error=microsoft_failed', session: false }),
+  (req, res) => handleOAuthCallback('microsoft')(req, res)
 );
 
 // --- Cerrar sesión (social) ---
