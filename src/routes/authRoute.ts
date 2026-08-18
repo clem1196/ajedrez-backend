@@ -47,15 +47,30 @@ router.put("/profile", authenticateJWT, validateUpdateProfile, updateProfile);
 // ✅ RUTAS DE AUTENTICACIÓN SOCIAL
 // Configuración de callbacks para emitir JWT al frontend
 const handleOAuthCallback = (req: any, res: any) => {
-  // Generar JWT usando exclusivamente JWT_SECRET
+  // Extraemos el usuario que adjuntó Passport tras autenticar
+  const user = req.user;
+
+  // Generamos el JWT con el formato EXACTO que espera authMiddleware.ts
   const token = jwt.sign(
-    { id: req.user.id, email: req.user.email },
-    process.env.JWT_SECRET || "mi_secreto_jwt",
+    {
+      userId: user.id,                      // 👈 Requerido por req.userId
+      nick: user.nick || user.displayName, // 👈 Requerido por req.userNick
+      email: user.email,                   // 👈 Requerido por req.userEmail
+      elo: user.elo || 1200,               // 👈 Opcional / Por defecto
+      isAdmin: user.isAdmin || false,       // 👈 Opcional
+      authProvider: user.authProvider || "google"
+    },
+    process.env.JWT_SECRET || "fallback_secret_key",
     { expiresIn: "7d" }
   );
 
-  // Redirigir a la vista de éxito del frontend pasando el token
-  res.redirect(`${FRONTEND_URL}/auth/success?token=${token}`);
+  const frontendUrl =
+    process.env.FRONTEND_URL ||
+    process.env.CORS_ORIGIN ||
+    "https://ajedrez-frontend.vercel.app";
+
+  // Redirigir al frontend pasando el token completo
+  res.redirect(`${frontendUrl}/auth/success?token=${token}`);
 };
 
 // --- Google ---
