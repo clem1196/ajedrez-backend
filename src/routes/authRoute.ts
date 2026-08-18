@@ -15,7 +15,13 @@ import { validateUpdateProfile } from "../middlewares/validationMiddleware";
 
 const router = Router();
 
-// ✅ Validaciones (sin cambios)
+// Base URL del frontend priorizando FRONTEND_URL y luego CORS_ORIGIN
+const FRONTEND_URL =
+  process.env.FRONTEND_URL ||
+  process.env.CORS_ORIGIN ||
+  "https://ajedrez-frontend.vercel.app";
+
+// ✅ Validaciones
 const registerValidation = [
   body("nick")
     .trim()
@@ -32,58 +38,55 @@ const loginValidation = [
   body("password").notEmpty().withMessage("Contraseña requerida"),
 ];
 
-// ✅ Rutas tradicionales (sin cambios)
+// ✅ Rutas tradicionales
 router.post("/register", registerValidation, register);
 router.post("/login", loginValidation, login);
 router.get("/me", authenticateJWT, getProfile);
 router.put("/elo", authenticateJWT, updateElo);
 router.put("/profile", authenticateJWT, validateUpdateProfile, updateProfile);
 
-// ✅ NUEVAS RUTAS DE AUTENTICACIÓN SOCIAL
+// ✅ RUTAS DE AUTENTICACIÓN SOCIAL
 // Configuración de callbacks para emitir JWT al frontend
 const handleOAuthCallback = (req: any, res: any) => {
-  // Generar JWT
+  // Generar JWT usando exclusivamente JWT_SECRET
   const token = jwt.sign(
     { id: req.user.id, email: req.user.email },
     process.env.JWT_SECRET || "mi_secreto_jwt",
-    { expiresIn: "7d" },
+    { expiresIn: "7d" }
   );
 
-  const frontendUrl =
-    process.env.FRONTEND_URL || "https://ajedrez-frontend.vercel.app";
-
   // Redirigir a la vista de éxito del frontend pasando el token
-  res.redirect(`${frontendUrl}/auth/success?token=${token}`);
+  res.redirect(`${FRONTEND_URL}/auth/success?token=${token}`);
 };
 
 // --- Google ---
 router.get(
   "/google",
-  passport.authenticate("google", { scope: ["profile", "email"] }),
+  passport.authenticate("google", { scope: ["profile", "email"] })
 );
 
 router.get(
   "/google/callback",
   passport.authenticate("google", {
-    failureRedirect: `${process.env.FRONTEND_URL || "https://ajedrez-frontend.vercel.app"}/login?error=google_failed`,
+    failureRedirect: `${FRONTEND_URL}/login?error=google_failed`,
     session: false,
   }),
-  (req, res) => handleOAuthCallback(req, res),
+  (req, res) => handleOAuthCallback(req, res)
 );
 
 // --- Facebook ---
 router.get(
   "/facebook",
-  passport.authenticate("facebook", { scope: ["email"] }),
+  passport.authenticate("facebook", { scope: ["email"] })
 );
 
 router.get(
   "/facebook/callback",
   passport.authenticate("facebook", {
-    failureRedirect: `${process.env.FRONTEND_URL || "https://ajedrez-frontend.vercel.app"}/login?error=facebook_failed`,
+    failureRedirect: `${FRONTEND_URL}/login?error=facebook_failed`,
     session: false,
   }),
-  (req, res) => handleOAuthCallback(req, res),
+  (req, res) => handleOAuthCallback(req, res)
 );
 
 // --- Microsoft ---
@@ -91,19 +94,19 @@ router.get(
   "/microsoft",
   passport.authenticate("microsoft", {
     scope: ["openid", "profile", "email", "offline_access"],
-  }),
+  })
 );
 
 router.get(
   "/microsoft/callback",
   passport.authenticate("microsoft", {
-    failureRedirect: `${process.env.FRONTEND_URL || "https://ajedrez-frontend.vercel.app"}/login?error=microsoft_failed`,
+    failureRedirect: `${FRONTEND_URL}/login?error=microsoft_failed`,
     session: false,
   }),
-  (req, res) => handleOAuthCallback(req, res),
+  (req, res) => handleOAuthCallback(req, res)
 );
 
-// --- Endpoint para verificar autenticación social ---
+// --- Endpoint para verificar autenticación social (opcional si usas JWT puro) ---
 router.get("/session", (req, res) => {
   if (req.isAuthenticated()) {
     const user = req.user as any;
