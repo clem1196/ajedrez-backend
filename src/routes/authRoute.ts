@@ -36,11 +36,11 @@ router.put('/profile', authenticateJWT, validateUpdateProfile, updateProfile);
 // ✅ NUEVAS RUTAS DE AUTENTICACIÓN SOCIAL
 
 // --- Google ---
-router.get('/auth/google', 
+router.get('/google', 
   passport.authenticate('google', { scope: ['profile', 'email'] })
 );
 
-router.get('/auth/google/callback',
+router.get('/google/callback',
   passport.authenticate('google', { 
     failureRedirect: '/login?error=google_failed',
     successRedirect: '/' 
@@ -48,11 +48,11 @@ router.get('/auth/google/callback',
 );
 
 // --- Facebook ---
-router.get('/auth/facebook',
+router.get('/facebook',
   passport.authenticate('facebook', { scope: ['email'] })
 );
 
-router.get('/auth/facebook/callback',
+router.get('/facebook/callback',
   passport.authenticate('facebook', {
     failureRedirect: '/login?error=facebook_failed',
     successRedirect: '/'
@@ -60,13 +60,13 @@ router.get('/auth/facebook/callback',
 );
 
 // --- Microsoft ---
-router.get('/auth/microsoft',
+router.get('/microsoft',
   passport.authenticate('microsoft', { 
     scope: ['openid', 'profile', 'email', 'offline_access']
   })
 );
 
-router.get('/auth/microsoft/callback',
+router.get('/microsoft/callback',
   passport.authenticate('microsoft', {
     failureRedirect: '/login?error=microsoft_failed',
     successRedirect: '/'
@@ -74,7 +74,7 @@ router.get('/auth/microsoft/callback',
 );
 
 // --- Cerrar sesión (social) ---
-router.get('/auth/logout', (req, res) => {
+router.get('/logout', (req, res) => {
   req.logout((err) => {
     if (err) {
       console.error('Error al cerrar sesión:', err);
@@ -85,7 +85,7 @@ router.get('/auth/logout', (req, res) => {
 });
 
 // --- Endpoint para verificar autenticación social ---
-router.get('/auth/session', (req, res) => {
+router.get('/session', (req, res) => {
   if (req.isAuthenticated()) {
     const user = req.user as any;
     res.json({
