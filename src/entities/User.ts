@@ -28,6 +28,9 @@ export class User {
    @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
   githubId!: string | null;
 
+   @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
+  lichessId!: string | null;
+
   @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
   facebookId!: string | null;
 

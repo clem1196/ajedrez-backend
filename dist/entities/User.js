@@ -22,6 +22,7 @@ let User = class User {
     createdAt;
     googleId;
     githubId;
+    lichessId;
     facebookId;
     microsoftId;
     authProvider;
@@ -64,6 +65,10 @@ __decorate([
 __decorate([
     (0, typeorm_1.Column)({ type: 'varchar', length: 255, nullable: true, unique: true }),
     __metadata("design:type", Object)
+], User.prototype, "lichessId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: 'varchar', length: 255, nullable: true, unique: true }),
+    __metadata("design:type", Object)
 ], User.prototype, "facebookId", void 0);
 __decorate([
     (0, typeorm_1.Column)({ type: 'varchar', length: 255, nullable: true, unique: true }),
@@ -72,7 +77,7 @@ __decorate([
 __decorate([
     (0, typeorm_1.Column)({
         type: 'enum',
-        enum: ['local', 'google', 'facebook', 'microsoft'],
+        enum: ['local', 'google', 'github', 'facebook', 'microsoft'],
         default: 'local'
     }),
     __metadata("design:type", String)

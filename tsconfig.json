@@ -6,7 +6,7 @@
     "lib": ["es2022"],                           /* Ya no necesitas "dom" en el backend */
     "outDir": "./dist",                          /* Dónde se guardará el código JavaScript compilado */
     "rootDir": "./src",                          /* Dónde está tu código TypeScript */
-    
+    "typeRoots": ["./node_modules/@types", "./src/types"],
     /* Configuración Vital para TypeORM */
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,

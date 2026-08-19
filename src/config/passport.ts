@@ -6,6 +6,7 @@ import { Strategy as MicrosoftStrategy } from 'passport-microsoft';
 import { AppDataSource } from '../config/dataSource'; // Ajusta la ruta a tu DataSource
 import { User } from '../entities/User';
 import { Strategy as GitHubStrategy } from "passport-github2";
+import { Strategy as LichessStrategy } from "passport-lichess";
 const userRepository = AppDataSource.getRepository(User);
 
 // Serialización: guardar solo el ID en la sesión
@@ -186,6 +187,50 @@ passport.use(
             githubId: profile.id,
             authProvider: "github",
            lastLogin: new Date(),
+          });
+          await userRepository.save(user);
+        }
+
+        return done(null, user);
+      } catch (error) {
+        return done(error as Error, undefined);
+      }
+    }
+  )
+);
+
+passport.use(
+  new LichessStrategy(
+    {
+      clientID: process.env.LICHESS_CLIENT_ID || "ajedrez-app-prod",
+      callbackURL:
+        process.env.LICHESS_CALLBACK_URL ||
+        "https://ajedrez-backend-scym.onrender.com/api/auth/lichess/callback",
+    },
+    async (
+      accessToken: string,
+      refreshToken: string,
+      profile: any,
+      done: any
+    ) => {
+      try {
+        const lichessEmail = `${profile.username.toLowerCase()}@lichess.user`;
+        const userElo =
+          profile.perfs?.blitz?.rating ||
+          profile.perfs?.rapid?.rating ||
+          1200;
+
+        let user = await userRepository.findOne({
+          where: [{ email: lichessEmail }, { lichessId: profile.id }],
+        });
+
+        if (!user) {
+          user = userRepository.create({
+            nick: profile.username.substring(0, 15),
+            email: lichessEmail,
+            lichessId: profile.id,
+            authProvider: "lichess",
+            lastLogin: new Date(),
           });
           await userRepository.save(user);
         }

@@ -102,10 +102,13 @@ router.post("/facebook/data-deletion", (req, res) => {
 });
 */
 // --- Endpoint para verificar autenticación social (opcional si usas JWT puro) ---
-// Ruta para iniciar el flujo
+// --- Github ---
 router.get("/github", passport_1.default.authenticate("github", { scope: ["user:email"] }));
-// Ruta de callback
 router.get("/github/callback", passport_1.default.authenticate("github", { failureRedirect: "/login", session: false }), handleOAuthCallback);
+// --- Lichess ---
+router.get("/lichess", passport_1.default.authenticate("lichess"));
+router.get("/lichess/callback", passport_1.default.authenticate("lichess", { failureRedirect: "/login", session: false }), handleOAuthCallback);
+// --- Local ---
 router.get("/session", (req, res) => {
     if (req.isAuthenticated()) {
         const user = req.user;
