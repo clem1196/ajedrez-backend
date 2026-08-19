@@ -39,7 +39,7 @@ export class User {
 
   @Column({ 
     type: 'enum', 
-    enum: ['local', 'google', 'github', 'facebook', 'microsoft'],
+    enum: ['local', 'google', 'github', 'lichess','facebook', 'microsoft'],
     default: 'local'
   })
   authProvider!: string;
