@@ -20,13 +20,12 @@ let User = class User {
     password;
     isAdmin;
     createdAt;
-    // ✅ NUEVOS CAMPOS PARA AUTH SOCIAL
     googleId;
+    githubId;
     facebookId;
     microsoftId;
     authProvider;
     lastLogin;
-    // ✅ Relación con stats (sin cambios)
     stats;
 };
 exports.User = User;
@@ -35,36 +34,39 @@ __decorate([
     __metadata("design:type", Number)
 ], User.prototype, "id", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ unique: true, length: 50 }),
+    (0, typeorm_1.Column)({ type: 'varchar', length: 50, unique: true }),
     __metadata("design:type", String)
 ], User.prototype, "nick", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ unique: true, length: 100 }),
+    (0, typeorm_1.Column)({ type: 'varchar', length: 100, unique: true }),
     __metadata("design:type", String)
 ], User.prototype, "email", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ length: 255, nullable: true }) // ✅ Ahora nullable (para login social)
-    ,
+    (0, typeorm_1.Column)({ type: 'varchar', length: 255, nullable: true }),
     __metadata("design:type", Object)
 ], User.prototype, "password", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ default: false }),
+    (0, typeorm_1.Column)({ type: 'boolean', default: false }),
     __metadata("design:type", Boolean)
 ], User.prototype, "isAdmin", void 0);
 __decorate([
-    (0, typeorm_1.CreateDateColumn)(),
+    (0, typeorm_1.CreateDateColumn)({ type: 'timestamp' }),
     __metadata("design:type", Date)
 ], User.prototype, "createdAt", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ nullable: true, unique: true }),
+    (0, typeorm_1.Column)({ type: 'varchar', length: 255, nullable: true, unique: true }),
     __metadata("design:type", Object)
 ], User.prototype, "googleId", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ nullable: true, unique: true }),
+    (0, typeorm_1.Column)({ type: 'varchar', length: 255, nullable: true, unique: true }),
+    __metadata("design:type", Object)
+], User.prototype, "githubId", void 0);
+__decorate([
+    (0, typeorm_1.Column)({ type: 'varchar', length: 255, nullable: true, unique: true }),
     __metadata("design:type", Object)
 ], User.prototype, "facebookId", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ nullable: true, unique: true }),
+    (0, typeorm_1.Column)({ type: 'varchar', length: 255, nullable: true, unique: true }),
     __metadata("design:type", Object)
 ], User.prototype, "microsoftId", void 0);
 __decorate([
@@ -76,8 +78,8 @@ __decorate([
     __metadata("design:type", String)
 ], User.prototype, "authProvider", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ nullable: true }),
-    __metadata("design:type", Date)
+    (0, typeorm_1.Column)({ type: 'timestamp', nullable: true }),
+    __metadata("design:type", Object)
 ], User.prototype, "lastLogin", void 0);
 __decorate([
     (0, typeorm_1.OneToOne)(() => UserStats_1.UserStats, (stats) => stats.user, { cascade: true }),
