@@ -119,7 +119,13 @@ router.get(
   }),
   (req, res) => handleOAuthCallback(req, res)
 );
-
+// Endpoint exigido por Meta para procesar la eliminación de datos de usuario
+router.post("/facebook/data-deletion", (req, res) => {
+  res.json({
+    url: "https://ajedrez-frontend.vercel.app/data-deletion-status",
+    confirmation_code: "code_" + Date.now()
+  });
+});
 // --- Endpoint para verificar autenticación social (opcional si usas JWT puro) ---
 router.get("/session", (req, res) => {
   if (req.isAuthenticated()) {

@@ -68,7 +68,7 @@ passport.use(new GoogleStrategy({
   }
 }));
 
-/*// --- Estrategia Facebook ---
+// --- Estrategia Facebook ---
 passport.use(new FacebookStrategy({
   clientID: process.env.FACEBOOK_APP_ID!,
   clientSecret: process.env.FACEBOOK_APP_SECRET!,
@@ -108,7 +108,7 @@ passport.use(new FacebookStrategy({
     done(error as Error, undefined);
   }
 }));
-
+/*
 // --- Estrategia Microsoft ---
 passport.use(new MicrosoftStrategy({
   clientID: process.env.MICROSOFT_CLIENT_ID!,
