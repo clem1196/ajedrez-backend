@@ -128,6 +128,19 @@ router.post("/facebook/data-deletion", (req, res) => {
 });
 */
 // --- Endpoint para verificar autenticación social (opcional si usas JWT puro) ---
+
+// Ruta para iniciar el flujo
+router.get(
+  "/github",
+  passport.authenticate("github", { scope: ["user:email"] })
+);
+
+// Ruta de callback
+router.get(
+  "/github/callback",
+  passport.authenticate("github", { failureRedirect: "/login", session: false }),
+  handleOAuthCallback
+);
 router.get("/session", (req, res) => {
   if (req.isAuthenticated()) {
     const user = req.user as any;

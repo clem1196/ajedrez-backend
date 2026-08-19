@@ -5,7 +5,7 @@ import { Strategy as FacebookStrategy } from 'passport-facebook';
 import { Strategy as MicrosoftStrategy } from 'passport-microsoft';
 import { AppDataSource } from '../config/dataSource'; // Ajusta la ruta a tu DataSource
 import { User } from '../entities/User';
-
+import { Strategy as GitHubStrategy } from "passport-github2";
 const userRepository = AppDataSource.getRepository(User);
 
 // Serialización: guardar solo el ID en la sesión
@@ -151,4 +151,50 @@ passport.use(new MicrosoftStrategy({
   }
 }));*/
 
+// --- Estrategia Guthub ---
+passport.use(
+  new GitHubStrategy(
+    {
+      clientID: process.env.GITHUB_CLIENT_ID!,
+      clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+      callbackURL:
+        process.env.GITHUB_CALLBACK_URL ||
+        "https://ajedrez-backend-scym.onrender.com/api/auth/github/callback",
+      scope: ["user:email"],
+    },
+    async (
+      accessToken: string,
+      refreshToken: string,
+      profile: any,
+      done: any
+    ) => {
+      try {
+        // Extraer email primario o generar uno basado en el id/username
+        const primaryEmail =
+          profile.emails && profile.emails[0]?.value
+            ? profile.emails[0].value
+            : `${profile.username}@github.user`;
+
+        let user = await userRepository.findOne({
+          where: [{ email: primaryEmail }, { githubId: profile.id }],
+        });
+
+        if (!user) {
+          user = userRepository.create({
+            nick: (profile.username || profile.displayName).substring(0, 15),
+            email: primaryEmail,
+            githubId: profile.id,
+            authProvider: "github",
+           lastLogin: new Date(),
+          });
+          await userRepository.save(user);
+        }
+
+        return done(null, user);
+      } catch (error) {
+        return done(error as Error, undefined);
+      }
+    }
+  )
+);
 export default passport;
