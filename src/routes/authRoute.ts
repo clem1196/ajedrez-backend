@@ -88,10 +88,10 @@ router.get(
   (req, res) => handleOAuthCallback(req, res)
 );
 
-// --- Facebook ---
+/*// --- Facebook ---
 router.get(
   "/facebook",
-  passport.authenticate("facebook", { scope: ["email"] })
+  passport.authenticate("facebook", { scope: ["public_profile", "email"]})
 );
 
 router.get(
@@ -126,6 +126,7 @@ router.post("/facebook/data-deletion", (req, res) => {
     confirmation_code: "code_" + Date.now()
   });
 });
+*/
 // --- Endpoint para verificar autenticación social (opcional si usas JWT puro) ---
 router.get("/session", (req, res) => {
   if (req.isAuthenticated()) {
