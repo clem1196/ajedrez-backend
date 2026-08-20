@@ -1,20 +1,21 @@
 // src/config/passport.ts
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import { Strategy as FacebookStrategy } from 'passport-facebook';
-import { Strategy as MicrosoftStrategy } from 'passport-microsoft';
-import { AppDataSource } from '../config/dataSource'; // Ajusta la ruta a tu DataSource
+import { AppDataSource } from '../config/dataSource';
 import { User } from '../entities/User';
 import { Strategy as GitHubStrategy } from "passport-github2";
 import { Strategy as LichessStrategy } from "passport-lichess";
-const userRepository = AppDataSource.getRepository(User);
+import { UserStats } from '../entities/UserStats';
 
-// Serialización: guardar solo el ID en la sesión
+const userRepository = AppDataSource.getRepository(User);
+const statsRepository = AppDataSource.getRepository(UserStats);
+
+// Serialización
 passport.serializeUser((user: any, done) => {
   done(null, user.id);
 });
 
-// Deserialización: recuperar el usuario completo desde el ID
+// Deserialización
 passport.deserializeUser(async (id: number, done) => {
   try {
     const user = await userRepository.findOneBy({ id });
@@ -24,6 +25,23 @@ passport.deserializeUser(async (id: number, done) => {
   }
 });
 
+// Helper para garantizar que el usuario tenga estadísticas creadas
+const ensureUserStats = async (user: User, initialElo: number = 1200) => {
+  let stats = await statsRepository.findOne({ where: { user: { id: user.id } } });
+  
+  if (!stats) {
+    stats = statsRepository.create({
+      user: user,
+      elo: initialElo,
+      wins: 0,
+      losses: 0,
+      draws: 0,      
+    });
+    await statsRepository.save(stats);
+  }
+  return stats;
+};
+
 // --- Estrategia Google ---
 passport.use(new GoogleStrategy({
   clientID: process.env.GOOGLE_CLIENT_ID!,
@@ -32,7 +50,6 @@ passport.use(new GoogleStrategy({
   scope: ['profile', 'email']
 }, async (accessToken, refreshToken, profile, done) => {
   try {
-    // Buscar por googleId o email
     let user = await userRepository.findOne({
       where: [
         { googleId: profile.id },
@@ -41,26 +58,29 @@ passport.use(new GoogleStrategy({
     });
 
     if (!user) {
-      // Crear nuevo usuario
+      // 1. Crear nuevo usuario
       user = userRepository.create({
         googleId: profile.id,
         email: profile.emails?.[0]?.value,
         nick: profile.displayName || profile.name?.givenName || 'Usuario',
-        password: null,       
+        password: null,        
         authProvider: 'google',
         lastLogin: new Date()
       });
       await userRepository.save(user);
-    } else if (!user.googleId) {
-      // Vincular cuenta existente
-      user.googleId = profile.id;
-      user.authProvider = 'google';
-      user.lastLogin = new Date();
-      await userRepository.save(user);
+
+      // 2. ⚡ CREAR ESTADÍSTICAS INICIALES EN LA BD
+      await ensureUserStats(user, 1200);
     } else {
-      // Actualizar último login
+      if (!user.googleId) {
+        user.googleId = profile.id;
+        user.authProvider = 'google';
+      }
       user.lastLogin = new Date();
       await userRepository.save(user);
+
+      // Aseguramos que tenga stats aunque haya sido creado antes
+      await ensureUserStats(user, 1200);
     }
 
     done(null, user);
@@ -69,90 +89,8 @@ passport.use(new GoogleStrategy({
   }
 }));
 
-// --- Estrategia Facebook ---
-passport.use(new FacebookStrategy({
-  clientID: process.env.FACEBOOK_APP_ID!,
-  clientSecret: process.env.FACEBOOK_APP_SECRET!,
-  callbackURL: process.env.FACEBOOK_CALLBACK_URL!,
-  profileFields: ['id', 'displayName', 'emails']
-}, async (accessToken, refreshToken, profile, done) => {
-  try {
-    let user = await userRepository.findOne({
-      where: [
-        { facebookId: profile.id },
-        { email: profile.emails?.[0]?.value }
-      ]
-    });
 
-    if (!user) {
-      user = userRepository.create({
-        facebookId: profile.id,
-        email: profile.emails?.[0]?.value,
-        nick: profile.displayName || 'Usuario',
-        password: null,       
-        authProvider: 'facebook',
-        lastLogin: new Date()
-      });
-      await userRepository.save(user);
-    } else if (!user.facebookId) {
-      user.facebookId = profile.id;
-      user.authProvider = 'facebook';
-      user.lastLogin = new Date();
-      await userRepository.save(user);
-    } else {
-      user.lastLogin = new Date();
-      await userRepository.save(user);
-    }
-
-    done(null, user);
-  } catch (error) {
-    done(error as Error, undefined);
-  }
-}));
-/*
-// --- Estrategia Microsoft ---
-passport.use(new MicrosoftStrategy({
-  clientID: process.env.MICROSOFT_CLIENT_ID!,
-  clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
-  callbackURL: process.env.MICROSOFT_CALLBACK_URL!,
-  passReqToCallback: true
-}, async (req: any, accessToken: any, refreshToken: any, profile: any, done: any) => {
-  try {
-    const email = profile.Emails?.[0] || profile.emails?.[0]?.value;
-    let user = await userRepository.findOne({
-      where: [
-        { microsoftId: profile.id },
-        { email: email }
-      ]
-    });
-
-    if (!user) {
-      user = userRepository.create({
-        microsoftId: profile.id,
-        email: email,
-        nick: profile.DisplayName || profile.displayName || 'Usuario',
-        password: null,      
-        authProvider: 'microsoft',
-        lastLogin: new Date()
-      });
-      await userRepository.save(user);
-    } else if (!user.microsoftId) {
-      user.microsoftId = profile.id;
-      user.authProvider = 'microsoft';
-      user.lastLogin = new Date();
-      await userRepository.save(user);
-    } else {
-      user.lastLogin = new Date();
-      await userRepository.save(user);
-    }
-
-    done(null, user);
-  } catch (error) {
-    done(error as Error, undefined);
-  }
-}));*/
-
-// --- Estrategia Guthub ---
+// --- Estrategia GitHub ---
 passport.use(
   new GitHubStrategy(
     {
@@ -170,7 +108,6 @@ passport.use(
       done: any
     ) => {
       try {
-        // Extraer email primario o generar uno basado en el id/username
         const primaryEmail =
           profile.emails && profile.emails[0]?.value
             ? profile.emails[0].value
@@ -181,14 +118,22 @@ passport.use(
         });
 
         if (!user) {
+          // 1. Crear usuario
           user = userRepository.create({
             nick: (profile.username || profile.displayName).substring(0, 15),
             email: primaryEmail,
             githubId: profile.id,
             authProvider: "github",
-           lastLogin: new Date(),
+            lastLogin: new Date(),
           });
           await userRepository.save(user);
+
+          // 2. ⚡ CREAR ESTADÍSTICAS INICIALES EN LA BD
+          await ensureUserStats(user, 1200);
+        } else {
+          user.lastLogin = new Date();
+          await userRepository.save(user);
+          await ensureUserStats(user, 1200);
         }
 
         return done(null, user);
@@ -199,6 +144,8 @@ passport.use(
   )
 );
 
+
+// --- Estrategia Lichess ---
 passport.use(
   new LichessStrategy(
     {
@@ -225,6 +172,7 @@ passport.use(
         });
 
         if (!user) {
+          // 1. Crear usuario
           user = userRepository.create({
             nick: profile.username.substring(0, 15),
             email: lichessEmail,
@@ -233,6 +181,13 @@ passport.use(
             lastLogin: new Date(),
           });
           await userRepository.save(user);
+
+          // 2. ⚡ CREAR ESTADÍSTICAS UTILIZANDO SU ELO REAL DE LICHESS
+          await ensureUserStats(user, userElo);
+        } else {
+          user.lastLogin = new Date();
+          await userRepository.save(user);
+          await ensureUserStats(user, userElo);
         }
 
         return done(null, user);
@@ -242,4 +197,5 @@ passport.use(
     }
   )
 );
+
 export default passport;
