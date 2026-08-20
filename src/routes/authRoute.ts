@@ -91,38 +91,61 @@ const handleOAuthCallback = async (req: any, res: any) => {
 
   // --- CASO A: VINCULACIÓN DE CUENTA DESDE EL PERFIL ---
   if (linkToken) {
-    try {
-      const secret = process.env.JWT_SECRET || "fallback_secret_key";
-      const payload = jwt.verify(linkToken, secret) as any;
-      const currentUserId = payload.userId || payload.id;
+  try {
+    const secret = process.env.JWT_SECRET || "fallback_secret_key";
+    const payload = jwt.verify(linkToken, secret) as any;
+    const currentUserId = payload.userId || payload.id;
 
-      // 1. Buscar al usuario logueado en la app (el principal)
-      const currentUser = await userRepository.findOneBy({ id: currentUserId });
+    // 1. Buscar al usuario logueado en la app (el principal)
+    const currentUser = await userRepository.findOneBy({ id: currentUserId });
 
-      if (currentUser && oAuthUser) {
-        // 2. Vincular el ID de la red social correspondiente
-        if (oAuthUser.googleId) currentUser.googleId = oAuthUser.googleId;
-        if (oAuthUser.githubId) currentUser.githubId = oAuthUser.githubId;
-        if (oAuthUser.lichessId) currentUser.lichessId = oAuthUser.lichessId;
+    if (currentUser && oAuthUser) {
+      // Identificar qué ID social estamos intentando vincular
+      const providerField = 
+        oAuthUser.googleId ? 'googleId' :
+        oAuthUser.githubId ? 'githubId' :
+        oAuthUser.lichessId ? 'lichessId' : null;
 
-        await userRepository.save(currentUser);
+      const socialId = oAuthUser.googleId || oAuthUser.githubId || oAuthUser.lichessId;
 
-        // 3. Si Passport creó un usuario duplicado en la BD (distinto id), lo limpiamos
-        if (oAuthUser.id && oAuthUser.id !== currentUser.id) {
-          try {
-            await userRepository.delete(oAuthUser.id);
-          } catch (delError) {
-            console.warn("No se pudo eliminar el usuario temporal duplicado:", delError);
+      if (providerField && socialId) {
+        // 🔍 VERIFICACIÓN: Comprobar si otra cuenta (distinta a la actual) ya tiene este ID social
+        const existingSocialUser = await userRepository.findOne({
+          where: { [providerField]: socialId } as any,
+        });
+
+        if (existingSocialUser && existingSocialUser.id !== currentUser.id) {
+          // Si el ID social estaba asignado a un usuario secundario/duplicado, lo desvinculamos o eliminamos
+          existingSocialUser[providerField] = null as any;
+          await userRepository.save(existingSocialUser);
+
+          // Si ese usuario fue creado solo para esta red social (sin password ni otros ids), podemos borrarlo
+          if (!existingSocialUser.password && !existingSocialUser.googleId && !existingSocialUser.githubId && !existingSocialUser.lichessId) {
+            await userRepository.delete(existingSocialUser.id);
           }
         }
 
-        return res.redirect(`${FRONTEND_URL}/profile?linked=${oAuthUser.authProvider || "social"}`);
+        // Asignamos el ID social a la cuenta del usuario actual
+        currentUser[providerField] = socialId as any;
+        await userRepository.save(currentUser);
       }
-    } catch (error) {
-      console.error("Error validando token en vinculación:", error);
-      return res.redirect(`${FRONTEND_URL}/profile?error=link_failed`);
+
+      // Limpiamos el usuario temporal si Passport generó uno nuevo distinto al actual
+      if (oAuthUser.id && oAuthUser.id !== currentUser.id) {
+        try {
+          await userRepository.delete(oAuthUser.id);
+        } catch (delError) {
+          console.warn("No se pudo eliminar el usuario temporal:", delError);
+        }
+      }
+
+      return res.redirect(`${FRONTEND_URL}/profile?linked=${oAuthUser.authProvider || "social"}`);
     }
+  } catch (error) {
+    console.error("Error validando token en vinculación:", error);
+    return res.redirect(`${FRONTEND_URL}/profile?error=link_failed`);
   }
+}
 
   // --- CASO B: LOGIN / REGISTRO NORMAL VÍA RED SOCIAL ---
   const token = jwt.sign(
