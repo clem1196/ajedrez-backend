@@ -7,11 +7,11 @@ import jwt from "jsonwebtoken";
 import { AppDataSource } from "../config/dataSource";
 import { User } from "../entities/User";
 import { UserStats } from "../entities/UserStats";
+import { JWT_SECRET } from "./jwt";
 
 const userRepository = AppDataSource.getRepository(User);
 const statsRepository = AppDataSource.getRepository(UserStats);
 
-const JWT_SECRET = process.env.JWT_SECRET || "supersecret_key";
 
 // Serialización y Deserialización
 passport.serializeUser((user: any, done) => {
@@ -28,21 +28,29 @@ passport.deserializeUser(async (id: number, done) => {
 });
 
 // Helper para obtener el userId si proviene de un flujo de vinculación (/link/:provider)
-const getLinkingUserId = (req: any): number | null => {
-  if (req?.query?.state) {
+export const getLinkingUserId = (req: any): number | null => {
+  try {
+    const rawState = req.query?.state || req.body?.state;
+    if (!rawState) return null;
+
+    // Intentar parsear el JSON directo o decodificado
+    let parsedState: any;
     try {
-      const decodedState = JSON.parse(
-        decodeURIComponent(req.query.state as string),
-      );
-      if (decodedState.linkToken) {
-        const payload = jwt.verify(decodedState.linkToken, JWT_SECRET) as any;
-        return payload.userId || payload.id || null;
-      }
-    } catch (e) {
-      console.error("⚠️ Error al decodificar state de vinculación:", e);
+      parsedState = JSON.parse(rawState);
+    } catch {
+      parsedState = JSON.parse(decodeURIComponent(rawState));
     }
+
+    const linkToken = parsedState?.linkToken;
+    if (!linkToken) return null;
+
+    // Decodificar el JWT usando la constante unificada
+    const decoded = jwt.verify(linkToken, JWT_SECRET) as any;
+    return decoded.userId || decoded.id || null;
+  } catch (error) {
+    console.error("Error al decodificar state de vinculación:", error);
+    return null;
   }
-  return null;
 };
 
 // Helper para asegurar registros en user_stats

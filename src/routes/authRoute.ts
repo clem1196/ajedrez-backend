@@ -14,6 +14,7 @@ import {
 import { body } from "express-validator";
 import { authenticateJWT } from "../middlewares/authMiddleware";
 import { validateUpdateProfile } from "../middlewares/validationMiddleware";
+import { JWT_SECRET } from "../config/jwt";
 
 const router = Router();
 const userRepository = AppDataSource.getRepository(User);
@@ -59,15 +60,15 @@ router.get("/link/:provider", (req, res, next) => {
     return res.redirect(`${FRONTEND_URL}/profile?error=unauthorized`);
   }
 
-  // Guardamos el token en el parámetro 'state' de OAuth2
-  const state = encodeURIComponent(JSON.stringify({ linkToken: token }));
+  // Se empaca el linkToken dentro de un objeto JSON estructurado
+  const statePayload = JSON.stringify({ linkToken: token });
 
   if (provider === "google") {
-    return passport.authenticate("google", { scope: ["profile", "email"], state })(req, res, next);
+    return passport.authenticate("google", { scope: ["profile", "email"], state: statePayload })(req, res, next);
   } else if (provider === "github") {
-    return passport.authenticate("github", { scope: ["user:email"], state })(req, res, next);
+    return passport.authenticate("github", { scope: ["user:email"], state: statePayload })(req, res, next);
   } else if (provider === "lichess") {
-    return passport.authenticate("lichess", { state })(req, res, next);
+    return passport.authenticate("lichess", { state: statePayload })(req, res, next);
   } else {
     return res.redirect(`${FRONTEND_URL}/profile?error=invalid_provider`);
   }
@@ -92,8 +93,8 @@ const handleOAuthCallback = async (req: any, res: any) => {
   // --- CASO A: VINCULACIÓN DE CUENTA DESDE EL PERFIL ---
   if (linkToken) {
   try {
-    const secret = process.env.JWT_SECRET || "fallback_secret_key";
-    const payload = jwt.verify(linkToken, secret) as any;
+    
+    const payload = jwt.verify(linkToken, JWT_SECRET) as any;
     const currentUserId = payload.userId || payload.id;
 
     // 1. Buscar al usuario logueado en la app (el principal)
