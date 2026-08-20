@@ -15,9 +15,10 @@ import { validateUpdateProfile } from "../middlewares/validationMiddleware";
 
 const router = Router();
 
-// Base URL del frontend priorizando FRONTEND_URL y luego CORS_ORIGIN
+// Base URL del frontend
 const FRONTEND_URL =
-  process.env.FRONTEND_URL ||  
+  process.env.FRONTEND_URL ||
+  process.env.CORS_ORIGIN ||
   "https://ajedrez-frontend.vercel.app";
 
 // ✅ Validaciones
@@ -44,34 +45,90 @@ router.get("/me", authenticateJWT, getProfile);
 router.put("/elo", authenticateJWT, updateElo);
 router.put("/profile", authenticateJWT, validateUpdateProfile, updateProfile);
 
-// ✅ RUTAS DE AUTENTICACIÓN SOCIAL
-// Configuración de callbacks para emitir JWT al frontend
-const handleOAuthCallback = (req: any, res: any) => {
-  // Extraemos el usuario que adjuntó Passport tras autenticar
-  const user = req.user;
 
-  // Generamos el JWT con el formato EXACTO que espera authMiddleware.ts
+// ==========================================
+// 🔗 RUTA INICIAL DE VINCULACIÓN (Account Linking)
+// ==========================================
+// Permite guardar el JWT actual en el estado (state) de OAuth2 para reconocer al usuario al volver.
+router.get("/link/:provider", (req, res, next) => {
+  const { provider } = req.params;
+  const token = req.query.token as string;
+
+  if (!token) {
+    return res.redirect(`${FRONTEND_URL}/profile?error=unauthorized`);
+  }
+
+  // Codificamos el token en el parámetro 'state' de OAuth2
+  const state = encodeURIComponent(JSON.stringify({ linkToken: token }));
+
+  if (provider === "google") {
+    return passport.authenticate("google", { scope: ["profile", "email"], state })(req, res, next);
+  } else if (provider === "github") {
+    return passport.authenticate("github", { scope: ["user:email"], state })(req, res, next);
+  } else if (provider === "lichess") {
+    return passport.authenticate("lichess", { state })(req, res, next);
+  } else {
+    return res.redirect(`${FRONTEND_URL}/profile?error=invalid_provider`);
+  }
+});
+
+
+// ==========================================
+// 🔐 MANEJADOR UNIFICADO DE CALLBACKS (OAuth)
+// ==========================================
+const handleOAuthCallback = async (req: any, res: any) => {
+  const user = req.user;
+  let linkToken: string | null = null;
+
+  // Intentamos recuperar el 'state' de la query si venía de una vinculación
+  if (req.query.state) {
+    try {
+      const decodedState = JSON.parse(decodeURIComponent(req.query.state as string));
+      linkToken = decodedState.linkToken || null;
+    } catch (e) {
+      console.warn("No se pudo decodificar el estado de OAuth:", e);
+    }
+  }
+
+  // --- CASO A: VINCULACIÓN DE CUENTA DESDE EL PERFIL ---
+  if (linkToken) {
+    try {
+      const secret = process.env.JWT_SECRET || "fallback_secret_key";
+      const payload = jwt.verify(linkToken, secret) as any;
+      const currentUserId = payload.userId || payload.id;
+
+      // Importante: Aquí llamas a tu método para guardar el id social en el usuario actual.
+      // Si en la estrategia de Passport adjuntaste el perfil como user, extraes su id según la red social:
+      // Ejemplo: await linkSocialAccountToUser(currentUserId, user);
+
+      return res.redirect(`${FRONTEND_URL}/profile?linked=${user.authProvider || "social"}`);
+    } catch (error) {
+      console.error("Error validando token en vinculación:", error);
+      return res.redirect(`${FRONTEND_URL}/profile?error=link_failed`);
+    }
+  }
+
+  // --- CASO B: LOGIN / REGISTRO NORMAL VÍA RED SOCIAL ---
   const token = jwt.sign(
     {
-      userId: user.id,                      // 👈 Requerido por req.userId
-      nick: user.nick || user.displayName, // 👈 Requerido por req.userNick
-      email: user.email,                   // 👈 Requerido por req.userEmail
-      elo: user.elo || 1200,               // 👈 Opcional / Por defecto
-      isAdmin: user.isAdmin || false,       // 👈 Opcional
-      authProvider: user.authProvider || "google"
+      userId: user.id,
+      nick: user.nick || user.displayName,
+      email: user.email,
+      elo: user.elo || 1200,
+      isAdmin: user.isAdmin || false,
+      authProvider: user.authProvider || "google",
     },
     process.env.JWT_SECRET || "fallback_secret_key",
     { expiresIn: "7d" }
   );
 
-  const frontendUrl =
-    process.env.FRONTEND_URL ||
-    process.env.CORS_ORIGIN ||
-    "https://ajedrez-frontend.vercel.app";
-
-  // Redirigir al frontend pasando el token completo
-  res.redirect(`${frontendUrl}/auth/success?token=${token}`);
+  return res.redirect(`${FRONTEND_URL}/auth/success?token=${token}`);
 };
+
+
+// ==========================================
+// 🌐 RUTAS CALLBACKS OAUTH
+// ==========================================
 
 // --- Google ---
 router.get(
@@ -85,66 +142,33 @@ router.get(
     failureRedirect: `${FRONTEND_URL}/login?error=google_failed`,
     session: false,
   }),
-  (req, res) => handleOAuthCallback(req, res)
+  handleOAuthCallback
 );
-
-/*// --- Facebook ---
-router.get(
-  "/facebook",
-  passport.authenticate("facebook", { scope: ["public_profile", "email"]})
-);
-
-router.get(
-  "/facebook/callback",
-  passport.authenticate("facebook", {
-    failureRedirect: `${FRONTEND_URL}/login?error=facebook_failed`,
-    session: false,
-  }),
-  (req, res) => handleOAuthCallback(req, res)
-);
-
-// --- Microsoft ---
-router.get(
-  "/microsoft",
-  passport.authenticate("microsoft", {
-    scope: ["openid", "profile", "email", "offline_access"],
-  })
-);
-
-router.get(
-  "/microsoft/callback",
-  passport.authenticate("microsoft", {
-    failureRedirect: `${FRONTEND_URL}/login?error=microsoft_failed`,
-    session: false,
-  }),
-  (req, res) => handleOAuthCallback(req, res)
-);
-// Endpoint exigido por Meta para procesar la eliminación de datos de usuario
-router.post("/facebook/data-deletion", (req, res) => {
-  res.json({
-    url: "https://ajedrez-frontend.vercel.app/data-deletion-status",
-    confirmation_code: "code_" + Date.now()
-  });
-});
-*/
-// --- Endpoint para verificar autenticación social (opcional si usas JWT puro) ---
 
 // --- Github ---
 router.get(
   "/github",
   passport.authenticate("github", { scope: ["user:email"] })
 );
+
 router.get(
   "/github/callback",
-  passport.authenticate("github", { failureRedirect: "/login", session: false }),
+  passport.authenticate("github", {
+    failureRedirect: `${FRONTEND_URL}/login?error=github_failed`,
+    session: false,
+  }),
   handleOAuthCallback
 );
 
 // --- Lichess ---
 router.get("/lichess", passport.authenticate("lichess"));
+
 router.get(
   "/lichess/callback",
-  passport.authenticate("lichess", { failureRedirect: "/login", session: false }),
+  passport.authenticate("lichess", {
+    failureRedirect: `${FRONTEND_URL}/login?error=lichess_failed`,
+    session: false,
+  }),
   handleOAuthCallback
 );
 
