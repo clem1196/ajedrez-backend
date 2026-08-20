@@ -11,7 +11,7 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || 'c1l2e3m1196',
   database: process.env.DB_NAME || 'ajedrez_db',
-  synchronize: false, // 💡 Auto-crea o actualiza las tablas al levantar el servidor (Ideal para desarrollo)
+  synchronize: false, // ⚠️ En producción siempre en false
   logging: false,
   entities: [User, UserStats, GameHistory],
   ssl: {
@@ -19,4 +19,13 @@ export const AppDataSource = new DataSource({
   },
   subscribers: [],
   migrations: [],
+  // ⚙️ OPTIMIZACIÓN DE CONEXIÓN PARA TiDB CLOUD (Free Tier)
+  extra: {
+    connectionLimit: 10,         // Límite de conexiones para no saturar la capa gratuita
+    connectTimeout: 20000,       // 20s de espera al conectar
+    waitForConnections: true,    // Si se agotan las conexiones, las solicitudes se encolan
+    queueLimit: 0,              // Cola sin límite de peticiones pendientes
+    enableKeepAlive: true,       // Mantiene viva la conexión TCP
+    keepAliveInitialDelay: 10000 // Envía pings de control cada 10s para prevenir desconexiones
+  }
 });
