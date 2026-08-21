@@ -77,7 +77,7 @@ __decorate([
 __decorate([
     (0, typeorm_1.Column)({
         type: 'enum',
-        enum: ['local', 'google', 'github', 'facebook', 'microsoft'],
+        enum: ['local', 'google', 'github', 'lichess', 'facebook', 'microsoft'],
         default: 'local'
     }),
     __metadata("design:type", String)

@@ -208,7 +208,8 @@ export const getProfile = async (
   }
 };
 
-/* 👤 Actualizar perfil de usuario
+/* 👤 Actualizar perfil de usuario autenticado
+ * Maneja cambio de Nick, Email y Contraseña (solo para usuarios locales)
  */
 export const updateProfile = async (
   req: Request,
@@ -223,7 +224,7 @@ export const updateProfile = async (
       return;
     }
 
-    // Buscar usuario con sus estadísticas
+    // 1. Buscar usuario con sus estadísticas
     const user = await userRepository.findOne({
       where: { id: userId },
       relations: ["stats"],
@@ -234,24 +235,22 @@ export const updateProfile = async (
       return;
     }
 
-    // ✅ Verificar si es usuario social (no tiene contraseña)
     const isSocialUser = user.authProvider !== "local";
+    const oldNick = user.nick;
 
-    // --- 1. Cambio de contraseña (solo para usuarios locales) ---
+    // --- 2. Cambio de contraseña (solo para usuarios locales) ---
     if (newPassword || currentPassword) {
       if (isSocialUser) {
         res.status(400).json({
-          message: `Las cuentas con autenticación ${user.authProvider} no pueden cambiar la contraseña.`,
+          message: `Las cuentas asociadas a ${user.authProvider} no pueden modificar la contraseña desde la plataforma.`,
         });
         return;
       }
 
-      // Si se quiere cambiar la contraseña, verificar la actual
       if (newPassword) {
         if (!currentPassword) {
           res.status(400).json({
-            message:
-              "La contraseña actual es requerida para cambiar la contraseña.",
+            message: "La contraseña actual es requerida para cambiar la contraseña.",
           });
           return;
         }
@@ -267,63 +266,80 @@ export const updateProfile = async (
           return;
         }
 
-        // Cifrar nueva contraseña
-        const hashedPassword = await bcrypt.hash(
+        user.password = await bcrypt.hash(
           newPassword,
           AUTH_CONFIG.SALT_ROUNDS,
         );
-        user.password = hashedPassword;
       }
     }
 
-    // --- 2. Cambio de email (solo para usuarios locales) ---
-    if (email) {
+    // --- 3. Cambio de Email (solo para usuarios locales) ---
+    if (email && email.trim().toLowerCase() !== user.email) {
       if (isSocialUser) {
         res.status(400).json({
-          message:
-            "Las cuentas con autenticación social no pueden cambiar su correo electrónico.",
+          message: "Las cuentas con autenticación social no pueden cambiar su correo electrónico.",
         });
         return;
       }
 
-      const existingUser = await userRepository.findOne({
-        where: { email: email.trim().toLowerCase() },
+      const cleanEmail = email.trim().toLowerCase();
+      const existingEmail = await userRepository.findOne({
+        where: { email: cleanEmail },
       });
 
-      if (existingUser && existingUser.id !== userId) {
+      if (existingEmail && existingEmail.id !== userId) {
         res.status(400).json({
           message: "El correo electrónico ya está registrado por otro usuario.",
         });
         return;
       }
 
-      user.email = email.trim().toLowerCase();
+      user.email = cleanEmail;
     }
 
-    // --- 3. Cambio de nick (todos los usuarios pueden) ---
-    if (nick) {
-      const existingUser = await userRepository.findOne({
-        where: { nick: nick.trim() },
+    // --- 4. Cambio de Nick (disponible para todos) ---
+    if (nick && nick.trim() !== user.nick) {
+      const cleanNick = nick.trim();
+      const existingNick = await userRepository.findOne({
+        where: { nick: cleanNick },
       });
 
-      if (existingUser && existingUser.id !== userId) {
+      if (existingNick && existingNick.id !== userId) {
         res.status(400).json({
-          message:
-            "El nombre de usuario (Nick) ya está en uso por otro jugador.",
+          message: "El nombre de usuario (Nick) ya está en uso por otro jugador.",
         });
         return;
       }
 
-      user.nick = nick.trim();
+      user.nick = cleanNick;
     }
 
-    // ✅ Actualizar último login
+    // Actualizar fecha de interacción
     user.lastLogin = new Date();
 
-    // Guardar cambios
+    // --- 5. Guardar cambios del usuario ---
     await userRepository.save(user);
 
-    // ✅ Generar nuevo token con datos actualizados
+    // --- 6. Si cambió el nick, actualizar historial de partidas (GameHistory) ---
+    if (nick && oldNick !== user.nick) {
+      const historyRepository = AppDataSource.getRepository("GameHistory");
+
+      await historyRepository
+        .createQueryBuilder()
+        .update("GameHistory")
+        .set({ whiteNick: user.nick })
+        .where("whiteNick = :oldNick", { oldNick })
+        .execute();
+
+      await historyRepository
+        .createQueryBuilder()
+        .update("GameHistory")
+        .set({ blackNick: user.nick })
+        .where("blackNick = :oldNick", { oldNick })
+        .execute();
+    }
+
+    // --- 7. Generar nuevo JWT actualizado ---
     const jwtSecret = process.env.JWT_SECRET || "fallback_secret_key";
     const token = jwt.sign(
       {
@@ -342,10 +358,10 @@ export const updateProfile = async (
       status: "success",
       message: "Perfil actualizado correctamente.",
       token,
-      user: sanitizeUser(user),
+      user: sanitizeUser(user), // Asumiendo que tienes esta función helper
     });
   } catch (error) {
-    console.error("❌ Error al actualizar perfil:", error);
+    console.error("❌ Error al actualizar el perfil:", error);
     res.status(500).json({
       message: "Error interno del servidor al actualizar el perfil.",
     });
