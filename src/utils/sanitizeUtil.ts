@@ -8,6 +8,12 @@ import { UserStats } from "../entities/UserStats";
 export const sanitizeUser = (user: User) => {
   if (!user) return null;
 
+  const wins = user.stats?.wins || 0;
+  const losses = user.stats?.losses || 0;
+  const draws = user.stats?.draws || 0;
+  const totalGames = wins + losses + draws;
+  const winRate = totalGames > 0 ? Math.round((wins / totalGames) * 100) : 0;
+
   return {
     id: user.id,
     nick: user.nick,
@@ -16,29 +22,14 @@ export const sanitizeUser = (user: User) => {
     githubId: user.githubId || null,
     lichessId: user.lichessId || null,
     elo: user.stats?.elo || 1200,
-    wins: user.stats?.wins || 0,
-    losses: user.stats?.losses || 0,
-    draws: user.stats?.draws || 0,
-    totalGames:
-      (user.stats?.wins || 0) +
-      (user.stats?.losses || 0) +
-      (user.stats?.draws || 0),
-    winRate:
-      (user.stats?.wins || 0) +
-        (user.stats?.losses || 0) +
-        (user.stats?.draws || 0) >
-      0
-        ? Math.round(
-            ((user.stats?.wins || 0) /
-              ((user.stats?.wins || 0) +
-                (user.stats?.losses || 0) +
-                (user.stats?.draws || 0))) *
-              100,
-          )
-        : 0,
+    wins,
+    losses,
+    draws,
+    totalGames,
+    winRate,
     isAdmin: user.isAdmin || false,
-     authProvider: user.authProvider || 'local',
-     createdAt: user.createdAt,
+    authProvider: user.authProvider || 'local',
+    createdAt: user.createdAt,
   };
 };
 
