@@ -1,10 +1,12 @@
 // src/app.ts
 import express, { Application, Request, Response } from "express";
+import cookieParser from "cookie-parser";
 import session from "express-session";
 import passport from "./config/passport";
 import authRoutes from "./routes/authRoute";
 import userRoutes from "./routes/userRoutes";
 import cors from "cors";
+
 
 const app: Application = express();
 
@@ -51,7 +53,7 @@ app.use(passport.session());
 // Middlewares
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
+app.use(cookieParser())
 // Rutas de la API
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
