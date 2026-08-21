@@ -30,21 +30,22 @@ passport.deserializeUser(async (id: number, done) => {
 // Helper para obtener el userId si proviene de un flujo de vinculación (/link/:provider)
 export const getLinkingUserId = (req: any): number | null => {
   try {
-    const rawState = req.query?.state || req.body?.state;
-    if (!rawState) return null;
+   // 1. Intentar obtener el token desde las cookies primero
+    let linkToken = req.cookies?.linkToken;
 
-    // Intentar parsear el JSON directo o decodificado
-    let parsedState: any;
-    try {
-      parsedState = JSON.parse(rawState);
-    } catch {
-      parsedState = JSON.parse(decodeURIComponent(rawState));
+    // 2. Si no viene en cookie, intentar desde el parámetro state (fallback para GitHub/Google)
+    if (!linkToken && req.query?.state) {
+      try {
+        const parsedState = JSON.parse(decodeURIComponent(req.query.state as string));
+        linkToken = parsedState.linkToken;
+      } catch {
+        // Si el state no es un JSON válido (caso Lichess), lo ignoramos
+      }
     }
 
-    const linkToken = parsedState?.linkToken;
     if (!linkToken) return null;
 
-    // Decodificar el JWT usando la constante unificada
+    // 3. Verificar y decodificar el JWT
     const decoded = jwt.verify(linkToken, JWT_SECRET) as any;
     return decoded.userId || decoded.id || null;
   } catch (error) {
