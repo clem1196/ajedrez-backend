@@ -10,6 +10,8 @@ import {
   getProfile,
   updateElo,
   updateProfile,
+  forgotPassword,
+  resetPassword,
 } from "../controllers/authController";
 import { body } from "express-validator";
 import { authenticateJWT } from "../middlewares/authMiddleware";
@@ -249,5 +251,7 @@ router.get("/session", (req, res) => {
     res.json({ authenticated: false });
   }
 });
-
+// Rutas públicas (no requieren middleware de JWT)
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 export default router;
