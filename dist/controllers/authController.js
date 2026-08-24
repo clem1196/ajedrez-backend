@@ -3,14 +3,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateElo = exports.updateProfile = exports.getProfile = exports.login = exports.register = void 0;
+exports.updateElo = exports.resetPassword = exports.forgotPassword = exports.updateProfile = exports.getProfile = exports.login = exports.register = void 0;
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const crypto_1 = __importDefault(require("crypto"));
 const dataSource_1 = require("../config/dataSource");
 const User_1 = require("../entities/User");
 const UserStats_1 = require("../entities/UserStats");
 const express_validator_1 = require("express-validator");
 const sanitizeUtil_1 = require("../utils/sanitizeUtil");
+const nodeMailer_1 = require("../config/nodeMailer");
 const userRepository = dataSource_1.AppDataSource.getRepository(User_1.User);
 // ✅ Constantes de configuración
 const AUTH_CONFIG = {
@@ -28,8 +30,8 @@ const register = async (req, res) => {
         const errors = (0, express_validator_1.validationResult)(req);
         if (!errors.isEmpty()) {
             res.status(400).json({
-                message: 'Error de validación',
-                errors: errors.array()
+                message: "Error de validación",
+                errors: errors.array(),
             });
             return;
         }
@@ -38,17 +40,17 @@ const register = async (req, res) => {
         const normalizedEmail = email.trim().toLowerCase();
         const [existingNick, existingEmail] = await Promise.all([
             userRepository.findOne({ where: { nick: normalizedNick } }),
-            userRepository.findOne({ where: { email: normalizedEmail } })
+            userRepository.findOne({ where: { email: normalizedEmail } }),
         ]);
         if (existingNick) {
             res.status(400).json({
-                message: 'El nombre de usuario (Nick) ya está en uso. Por favor, elige otro.'
+                message: "El nombre de usuario (Nick) ya está en uso. Por favor, elige otro.",
             });
             return;
         }
         if (existingEmail) {
             res.status(400).json({
-                message: 'El correo electrónico ya está registrado. ¿Ya tienes cuenta?'
+                message: "El correo electrónico ya está registrado. ¿Ya tienes cuenta?",
             });
             return;
         }
@@ -57,7 +59,7 @@ const register = async (req, res) => {
         newUser.nick = normalizedNick;
         newUser.email = normalizedEmail;
         newUser.password = hashedPassword;
-        newUser.authProvider = 'local'; // ✅ IMPORTANTE
+        newUser.authProvider = "local"; // ✅ IMPORTANTE
         newUser.lastLogin = new Date();
         // Crear estadísticas
         const newStats = new UserStats_1.UserStats();
@@ -71,19 +73,19 @@ const register = async (req, res) => {
         await userRepository.save(newUser);
         console.log(`📝 Nuevo usuario registrado: ${normalizedNick} (Elo: ${finalElo}, auth: local)`);
         res.status(201).json({
-            status: 'success',
+            status: "success",
             message: `¡Cuenta creada exitosamente! Tu Elo inicial es ${finalElo}.`,
             user: {
                 nick: normalizedNick,
                 elo: finalElo,
-                authProvider: 'local'
-            }
+                authProvider: "local",
+            },
         });
     }
     catch (error) {
-        console.error('❌ Error en el registro de usuario:', error);
+        console.error("❌ Error en el registro de usuario:", error);
         res.status(500).json({
-            message: 'Error interno del servidor al registrar usuario.'
+            message: "Error interno del servidor al registrar usuario.",
         });
     }
 };
@@ -309,6 +311,123 @@ const updateProfile = async (req, res) => {
     }
 };
 exports.updateProfile = updateProfile;
+/* 🔑 1. Solicitar restablecimiento de contraseña
+ * Genera token temporal y envía el correo con el enlace
+ */
+const forgotPassword = async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) {
+            res.status(400).json({ message: "El correo electrónico es requerido." });
+            return;
+        }
+        const cleanEmail = email.trim().toLowerCase();
+        const user = await userRepository.findOne({ where: { email: cleanEmail } });
+        // Por seguridad (OWASP), no revelamos si el correo existe o no en la BD
+        if (!user) {
+            res.json({
+                status: "success",
+                message: "Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.",
+            });
+            return;
+        }
+        // Validar que no sea un usuario de OAuth (Google, GitHub, Lichess)
+        if (user.authProvider !== "local") {
+            res.status(400).json({
+                message: `Esta cuenta se registró mediante ${user.authProvider}. Inicia sesión con dicho proveedor.`,
+            });
+            return;
+        }
+        // Generar token único (32 bytes aleatorios)
+        const resetToken = crypto_1.default.randomBytes(32).toString("hex");
+        // Guardar el hash del token y su tiempo de expiración (15 minutos)
+        const tokenHash = crypto_1.default
+            .createHash("sha256")
+            .update(resetToken)
+            .digest("hex");
+        user.resetPasswordToken = tokenHash;
+        user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000); // +15 mins
+        await userRepository.save(user);
+        // Enlace que irá al frontend
+        const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+        const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}&id=${user.id}`;
+        // Enviar correo electrónico
+        await nodeMailer_1.transporter.sendMail({
+            from: `"Ajedrez App" <${process.env.EMAIL_USER}>`,
+            to: user.email,
+            subject: "Recuperación de Contraseña - Ajedrez App",
+            html: `
+        <h2>Restablecimiento de Contraseña</h2>
+        <p>Hola <strong>${user.nick}</strong>,</p>
+        <p>Has solicitado restablecer tu contraseña. Haz clic en el siguiente enlace para continuar:</p>
+        <a href="${resetUrl}" target="_blank" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Restablecer Contraseña</a>
+        <p>Este enlace es válido solo por <strong>15 minutos</strong>.</p>
+        <p>Si no solicitaste este cambio, puedes ignorar este mensaje.</p>
+      `,
+        });
+        res.json({
+            status: "success",
+            message: "Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.",
+        });
+    }
+    catch (error) {
+        console.error("❌ Error en forgotPassword:", error);
+        res.status(500).json({
+            message: "Error interno al procesar la solicitud de recuperación.",
+        });
+    }
+};
+exports.forgotPassword = forgotPassword;
+/* 🔒 2. Validar token y cambiar contraseña
+ * Procesa la nueva contraseña desde el formulario del frontend
+ */
+const resetPassword = async (req, res) => {
+    try {
+        const { userId, token, newPassword } = req.body;
+        if (!userId || !token || !newPassword) {
+            res.status(400).json({ message: "Todos los campos son requeridos." });
+            return;
+        }
+        // Hashear el token entrante para compararlo con el almacenado en BD
+        const tokenHash = crypto_1.default
+            .createHash("sha256")
+            .update(token)
+            .digest("hex");
+        const user = await userRepository.findOne({
+            where: { id: userId, resetPasswordToken: tokenHash },
+        });
+        if (!user) {
+            res.status(400).json({
+                message: "El token de recuperación es inválido o no existe.",
+            });
+            return;
+        }
+        // Verificar si el token ya expiró
+        if (!user.resetPasswordExpires ||
+            user.resetPasswordExpires.getTime() < Date.now()) {
+            res.status(400).json({
+                message: "El token de recuperación ha expirado. Solicita uno nuevo.",
+            });
+            return;
+        }
+        // Hashear la nueva contraseña y limpiar tokens
+        user.password = await bcrypt_1.default.hash(newPassword, AUTH_CONFIG.SALT_ROUNDS);
+        user.resetPasswordToken = null;
+        user.resetPasswordExpires = null;
+        await userRepository.save(user);
+        res.json({
+            status: "success",
+            message: "Contraseña actualizada exitosamente. Ya puedes iniciar sesión.",
+        });
+    }
+    catch (error) {
+        console.error("❌ Error en resetPassword:", error);
+        res.status(500).json({
+            message: "Error interno al restablecer la contraseña.",
+        });
+    }
+};
+exports.resetPassword = resetPassword;
 /**
  * 🔄 Actualizar Elo del usuario después de una partida
  */

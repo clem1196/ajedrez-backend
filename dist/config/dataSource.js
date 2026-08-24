@@ -13,7 +13,7 @@ exports.AppDataSource = new typeorm_1.DataSource({
     username: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || 'c1l2e3m1196',
     database: process.env.DB_NAME || 'ajedrez_db',
-    synchronize: false, // ⚠️ En producción siempre en false
+    synchronize: true, // ⚠️ En producción siempre en false
     logging: false,
     entities: [User_1.User, UserStats_1.UserStats, GameHistory_1.GameHistory],
     ssl: {

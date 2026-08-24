@@ -11,7 +11,7 @@ export const AppDataSource = new DataSource({
   username: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || 'c1l2e3m1196',
   database: process.env.DB_NAME || 'ajedrez_db',
-  synchronize: false, // ⚠️ En producción siempre en false
+  synchronize: true, // ⚠️ En producción siempre en false
   logging: false,
   entities: [User, UserStats, GameHistory],
   ssl: {

@@ -192,4 +192,7 @@ router.get("/session", (req, res) => {
         res.json({ authenticated: false });
     }
 });
+// Rutas públicas (no requieren middleware de JWT)
+router.post("/forgot-password", authController_1.forgotPassword);
+router.post("/reset-password", authController_1.resetPassword);
 exports.default = router;
