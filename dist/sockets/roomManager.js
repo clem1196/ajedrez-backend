@@ -14,8 +14,8 @@ exports.TIME_CONSTANTS = {
 class RoomManager {
     guestQueues = new Map();
     activeRooms = new Map();
-    addToGuestQueue(socketId, nick, minutes) {
-        const newPlayer = { socketId, nick, isBot: false };
+    addToGuestQueue(socketId, nick, minutes, elo = 1200) {
+        const newPlayer = { socketId, nick, isBot: false, elo };
         if (!this.guestQueues.has(minutes)) {
             this.guestQueues.set(minutes, []);
         }

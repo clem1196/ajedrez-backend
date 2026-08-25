@@ -10,21 +10,17 @@ import { createAdminRoutes } from "../routes/adminRoute";
 import { Application } from "express";
 
 const roomManager = new RoomManager();
+
 // ✅ Función para determinar si se debe crear un bot
 const shouldCreateBot = (queueSize: number): boolean => {
-  // ✅ Si los bots están desactivados globalmente
   if (!BOT_CONFIG.ENABLED) {
     console.log(`ℹ️ Bots desactivados globalmente`);
     return false;
   }
-
-  // ✅ Si hay suficientes jugadores en cola, no usar bots
   if (queueSize >= BOT_CONFIG.MIN_PLAYERS_TO_DISABLE_BOTS) {
     console.log(`👥 ${queueSize} jugadores en cola, no se necesita bot`);
     return false;
   }
-
-  // ✅ Probabilidad de crear bot (para situaciones mixtas)
   const random = Math.random() * 100;
   if (random > BOT_CONFIG.BOT_PROBABILITY) {
     console.log(
@@ -32,7 +28,6 @@ const shouldCreateBot = (queueSize: number): boolean => {
     );
     return false;
   }
-
   return true;
 };
 
@@ -42,9 +37,9 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
   });
 
   const botService = new BotService(roomManager, io);
-  // ✅ Registrar rutas de administración con las dependencias
   const adminRoutes = createAdminRoutes(roomManager, io, botService);
   app.use("/api/admin", adminRoutes);
+
   setInterval(
     () => {
       botService.cleanupInactiveBots();
@@ -55,10 +50,10 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
   io.on("connection", (socket: Socket) => {
     console.log(`👤 Usuario conectado: ${socket.id}`);
 
-    // --- 🎮 UNIRSE A COLA ---
+    // --- 🎮 UNIRSE A COLA (con ELO dinámico) ---
     socket.on(
       "join_game",
-      ({ nick, minutes }: { nick: string; minutes?: number }) => {
+      async ({ nick, minutes }: { nick: string; minutes?: number }) => {
         const gameMinutes =
           minutes && [5, 10, 15].includes(minutes) ? minutes : 10;
 
@@ -67,31 +62,49 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
             ? nick.trim()
             : `Invitado_${socket.id.substring(0, 5)}`;
 
+        // ✅ OBTENER ELO DEL JUGADOR (desde BD o 1200 por defecto)
+        let playerElo = 1200;
+        try {
+          const stats = await EloService.getPlayerStats(finalNick);
+          if (stats && stats.elo) {
+            playerElo = stats.elo;
+          }
+        } catch (error) {
+          console.warn(
+            `⚠️ No se pudo obtener ELO para ${finalNick}, usando 1200`,
+          );
+        }
+
         roomManager.removeFromQueue(socket.id);
 
-        console.log(`🔍 ${finalNick} busca partida de ${gameMinutes} min...`);
+        console.log(
+          `🔍 ${finalNick} (Elo: ${playerElo}) busca partida de ${gameMinutes} min...`,
+        );
 
-        // ✅ Intentar emparejar con jugadores en cola
         const queueSize = roomManager.getQueueSizeByMinutes(gameMinutes);
         let room: GameRoom | null = null;
 
+        // ✅ Intentar emparejar con jugadores en cola (pasando el ELO)
         if (queueSize > 0) {
           console.log(
             `👥 ${queueSize} jugadores esperando en cola de ${gameMinutes} min`,
           );
-          room = roomManager.addToGuestQueue(socket.id, finalNick, gameMinutes);
+          room = roomManager.addToGuestQueue(
+            socket.id,
+            finalNick,
+            gameMinutes,
+            playerElo,
+          );
         }
 
         // ✅ Si no hay oponente y la config permite bots, creamos la partida contra IA
         if (!room && shouldCreateBot(queueSize)) {
           console.log(
-            `🤖 No hay oponentes disponibles, creando bot para ${finalNick}`,
+            `🤖 No hay oponentes disponibles, creando bot para ${finalNick} (Elo: ${playerElo})`,
           );
 
-          // ✅ Obtener dificultad actual
-          const difficulty = BOT_CONFIG.DIFFICULTY || "easy";
-
-          // ✅ Obtener nombre y Elo según dificultad
+          // 🔥 CALCULAR DIFICULTAD SEGÚN ELO DEL HUMANO
+          const difficulty = botService.getDifficultyByElo(playerElo);
           const botNick = botService.getRandomBotNameByDifficulty(difficulty);
           const botElo = botService.getRandomEloByDifficulty(difficulty);
           const tempBotId = `bot_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
@@ -100,10 +113,10 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
             socketId: tempBotId,
             nick: botNick,
             elo: botElo,
-            color: "w" as "w" | "b", // Se corregirá en RoomManager
+            color: "w" as "w" | "b",
             isBot: true as const,
           };
-          // ✅ Crear sala con bot
+
           room = roomManager.createRoomWithBot(
             socket.id,
             finalNick,
@@ -112,11 +125,11 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
           );
 
           if (room) {
-            // 3. Registramos el bot en el servicio con el ID que acabamos de crear
             const actualBotPlayer = room.playerWhite.isBot
               ? room.playerWhite
               : room.playerBlack;
 
+            // ✅ REGISTRAR BOT CON SU DIFICULTAD (para el servicio)
             botService.addBot({
               id: actualBotPlayer.socketId,
               nick: actualBotPlayer.nick,
@@ -135,9 +148,14 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
             });
           }
         } else if (!room) {
-          // ✅ Si no hay bot y no hay oponente, esperar en cola
+          // ✅ Si no hay bot y no hay oponente, esperar en cola (con ELO)
           console.log(`⏳ Esperando oponente real para ${finalNick}`);
-          roomManager.addToGuestQueue(socket.id, finalNick, gameMinutes);
+          roomManager.addToGuestQueue(
+            socket.id,
+            finalNick,
+            gameMinutes,
+            playerElo,
+          );
           socket.emit("waiting_for_opponent", {
             message: `Buscando oponente para ${gameMinutes} min...`,
           });
@@ -146,7 +164,6 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
 
         // ✅ Si hay sala (con bot o con oponente), configurar
         if (room) {
-          // ✅ LOGS DE DEPURACIÓN
           console.log(`📊 Sala ${room.roomId} creada:`);
           console.log(
             `   - Blancas: ${room.playerWhite?.nick || "VACÍO"} (${room.playerWhite?.isBot ? "Bot" : "Humano"})`,
@@ -155,7 +172,6 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
             `   - Negras: ${room.playerBlack?.nick || "VACÍO"} (${room.playerBlack?.isBot ? "Bot" : "Humano"})`,
           );
 
-          // ⏱️ CONFIGURAR SALA
           setupRoomSocketsAndStart(io, socket, room);
 
           // ⏱️ TIMER DE CORTESÍA
@@ -183,7 +199,6 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
             const message = `Partida abortada: Las Blancas (${room.playerWhite?.nick || "Desconocido"}) no iniciaron el juego a tiempo.`;
 
             try {
-              // ✅ Si hay un bot en la sala, eliminarlo
               if (room.playerWhite?.isBot) {
                 botService.removeBot(room.roomId, room.playerWhite.socketId);
               }
@@ -242,13 +257,60 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
     // --- 🔄 REVANCHAS ---
     socket.on("propose_rematch", ({ roomId }) => {
       const room = roomManager.getRoom(roomId);
-      if (room) {
-        const opponentId =
-          room.playerWhite.socketId === socket.id
-            ? room.playerBlack.socketId
-            : room.playerWhite.socketId;
-        io.to(opponentId).emit("rematch_requested");
+      if (!room) return;
+
+      const isWhite = room.playerWhite.socketId === socket.id;
+      const opponent = isWhite ? room.playerBlack : room.playerWhite;
+
+      // ✅ Si el oponente es un bot, el bot decide automáticamente
+      if (opponent.isBot) {
+        console.log(`🤖 Bot ${opponent.nick} recibe propuesta de revancha`);
+
+        const botInstance = botService.getBotInstanceForPlayer(
+          opponent.socketId,
+        );
+        if (botInstance) {
+          const shouldAccept = botInstance.shouldAcceptRematch(room);
+          if (shouldAccept) {
+            console.log(`🤖 Bot ${opponent.nick} ACEPTA revancha`);
+            // Simular que el bot acepta la revancha
+            // Emitimos directamente el evento accept_rematch con el roomId
+            socket.emit("rematch_accepted"); // notificar al que propuso
+            // También podríamos emitir a toda la sala
+            io.to(roomId).emit("rematch_accepted");
+
+            // Crear nueva sala de revancha (igual que en accept_rematch)
+            const newRoom = roomManager.createRematchRoom(roomId);
+            if (newRoom) {
+              const opponentSocket = io.sockets.sockets.get(opponent.socketId);
+              const currentSocket = io.sockets.sockets.get(socket.id);
+              if (currentSocket && opponentSocket) {
+                setupRoomSocketsAndStart(io, currentSocket, newRoom);
+                console.log(`🔄 Revancha creada con bot: ${newRoom.roomId}`);
+              } else {
+                roomManager.removeRoom(newRoom.roomId);
+                console.error(
+                  `❌ Error: No se encontraron sockets para la revancha con bot`,
+                );
+              }
+            }
+          } else {
+            console.log(`🤖 Bot ${opponent.nick} RECHAZA revancha`);
+            socket.emit("rematch_declined");
+            io.to(opponent.socketId).emit("rematch_declined");
+          }
+        } else {
+          // Fallback: rechazar si no se encuentra instancia
+          socket.emit("rematch_declined");
+        }
+        return;
       }
+
+      // Si el oponente es humano, comportamiento normal
+      const opponentId = isWhite
+        ? room.playerBlack.socketId
+        : room.playerWhite.socketId;
+      io.to(opponentId).emit("rematch_requested");
     });
 
     socket.on("cancel_rematch_proposal", ({ roomId }) => {
@@ -273,30 +335,41 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
       }
     });
 
-    socket.on("accept_rematch", ({ roomId }) => {
-      const newRoom = roomManager.createRematchRoom(roomId);
-      if (newRoom) {
-        const opponentSocket = io.sockets.sockets.get(
-          newRoom.playerBlack.socketId,
-        );
-        const currentSocket = io.sockets.sockets.get(
-          newRoom.playerWhite.socketId,
-        );
+   socket.on("accept_rematch", ({ roomId }) => {
+  const room = roomManager.getRoom(roomId);
+  if (!room) return;
 
-        if (currentSocket && opponentSocket) {
-          setupRoomSocketsAndStart(io, currentSocket, newRoom);
-          console.log(`🔄 Revancha creada: ${newRoom.roomId}`);
-        } else {
-          roomManager.removeRoom(newRoom.roomId);
-          console.error(`❌ Error: No se encontraron sockets para la revancha`);
-        }
-      }
-    });
+  // Si el que acepta es un bot, ya se manejó en propose_rematch, pero por seguridad
+  const isWhite = room.playerWhite.socketId === socket.id;
+  const player = isWhite ? room.playerWhite : room.playerBlack;
+  if (player.isBot) {
+    console.log(`🤖 Bot intentó aceptar revancha directamente, ignorado`);
+    return;
+  }
 
-    // ✅ NUEVO: Reconexión a una sala existente
+  const newRoom = roomManager.createRematchRoom(roomId);
+  if (newRoom) {
+    const opponentSocket = io.sockets.sockets.get(
+      newRoom.playerBlack.socketId
+    );
+    const currentSocket = io.sockets.sockets.get(
+      newRoom.playerWhite.socketId
+    );
+
+    if (currentSocket && opponentSocket) {
+      setupRoomSocketsAndStart(io, currentSocket, newRoom);
+      console.log(`🔄 Revancha creada: ${newRoom.roomId}`);
+    } else {
+      roomManager.removeRoom(newRoom.roomId);
+      console.error(`❌ Error: No se encontraron sockets para la revancha`);
+    }
+  }
+});
+
+    // --- 🔄 RECONEXIÓN (con ELO dinámico para recrear bots) ---
     socket.on(
       "reconnect_to_room",
-      ({ roomId, nick }: { roomId: string; nick: string }) => {
+      async ({ roomId, nick }: { roomId: string; nick: string }) => {
         console.log(
           `🔄 Solicitud de reconexión a sala ${roomId} de ${socket.id} con nick ${nick}`,
         );
@@ -310,7 +383,6 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
           return;
         }
 
-        // ✅ Verificar si el nick pertenece a la sala
         const isWhite = room.playerWhite.nick === nick;
         const isBlack = room.playerBlack.nick === nick;
 
@@ -322,7 +394,6 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
           return;
         }
 
-        // ✅ Verificar si la partida ya terminó
         if (room.gameEnded || room.isProcessingEnd) {
           console.log(`❌ Partida en sala ${roomId} ya terminó`);
           socket.emit("reconnect_failed", {
@@ -331,16 +402,13 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
           return;
         }
 
-        // ✅ Unir el socket a la sala
         socket.join(roomId);
 
-        // ✅ Si la partida está pausada (por desconexión), reconectar
         if (room.isPaused && room.playerDisconnected?.nick === nick) {
           console.log(
             `🔄 Jugador ${nick} estaba desconectado, reconectando...`,
           );
 
-          // ✅ ACTUALIZAR EL SOCKETID EN LA SALA
           const success = roomManager.setPlayerReconnected(
             roomId,
             socket.id,
@@ -354,29 +422,32 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
             return;
           }
 
-          // ✅ Si el oponente era un bot, recrearlo
+          // ✅ Obtener ELO del jugador que reconecta (para calcular dificultad del bot)
+          let playerElo = 1200;
+          try {
+            const stats = await EloService.getPlayerStats(nick);
+            if (stats && stats.elo) {
+              playerElo = stats.elo;
+            }
+          } catch (error) {
+            console.warn(`⚠️ No se pudo obtener ELO para ${nick}, usando 1200`);
+          }
+
           const opponentColor = isWhite ? "b" : "w";
           const opponentPlayer = isWhite ? room.playerBlack : room.playerWhite;
 
-          // ✅ Verificar si el oponente es un bot y está activo
+          // ✅ Si el oponente es un bot y no está activo, recrearlo con dificultad calculada
           if (opponentPlayer && opponentPlayer.isBot) {
-            // ✅ El bot ya debería estar en el servicio, pero si no, recrearlo
             const botExists = botService.getBotInfo(opponentPlayer.socketId);
             if (!botExists) {
               console.log(
                 `🤖 Recreando bot ${opponentPlayer.nick} para sala ${roomId}`,
               );
-              let botElo = 1200;
-              const existingBot = botService.getBotInfo(
-                opponentPlayer.socketId,
-              );
-              if (existingBot) {
-                botElo = existingBot.elo;
-              } else {
-                // ✅ Si no existe, usar un valor aleatorio
-                const difficulty = BOT_CONFIG.DIFFICULTY || "easy";
-                botElo = botService.getRandomEloByDifficulty(difficulty);
-              }
+
+              // 🔥 CALCULAR DIFICULTAD SEGÚN ELO DEL HUMANO
+              const difficulty = botService.getDifficultyByElo(playerElo);
+              const botElo = botService.getRandomEloByDifficulty(difficulty);
+
               botService.addBot({
                 id: opponentPlayer.socketId,
                 nick: opponentPlayer.nick,
@@ -384,15 +455,16 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
                 color: opponentColor as "w" | "b",
                 socketId: opponentPlayer.socketId,
                 roomId: roomId,
-                difficulty: BOT_CONFIG.DIFFICULTY || "easy",
+                difficulty: difficulty,
               });
+
               console.log(
-                `✅ Bot ${opponentPlayer.nick} recreado en sala ${roomId}`,
+                `✅ Bot ${opponentPlayer.nick} recreado (dificultad: ${difficulty}) en sala ${roomId}`,
               );
             }
           }
 
-          // ✅ Notificar al oponente
+          // Notificar al oponente
           const opponentSocketId = isWhite
             ? room.playerBlack.socketId
             : room.playerWhite.socketId;
@@ -400,10 +472,8 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
             message: `¡${nick} ha reconectado!`,
           });
 
-          // ✅ Reanudar la partida
           startRoomTimer(io, room);
 
-          // ✅ Enviar estado actualizado al jugador que reconectó
           socket.emit("game_state_sync", {
             fen: room.chessInstance.fen(),
             whiteTime: room.whiteTime,
@@ -413,7 +483,6 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
             myColor: isWhite ? "w" : "b",
           });
 
-          // ✅ Notificar a ambos que la partida continúa
           io.to(roomId).emit("game_resumed", {
             message: "La partida se reanuda.",
           });
@@ -428,7 +497,7 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
             myColor: isWhite ? "w" : "b",
           });
         } else {
-          // ✅ Si la partida no está pausada, solo unir a la sala
+          // Si la partida no está pausada, solo unir
           console.log(`✅ Socket ${socket.id} unido a sala ${roomId}`);
           socket.emit("reconnect_success", {
             fen: room.chessInstance.fen(),
@@ -457,24 +526,20 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
       },
     );
 
-    // --- 📡 REGISTRAR HANDLERS DEL JUEGO (PASAR botService) ---
-    registerGameHandlers(io, socket, roomManager, botService); // ✅ PASAR botService
+    // --- 📡 REGISTRAR HANDLERS DEL JUEGO ---
+    registerGameHandlers(io, socket, roomManager, botService);
+
     // --- 🔌 DESCONEXIÓN ---
-
-    // En src/sockets/socketServer.ts (dentro de socket.on("disconnect"))
-
     socket.on("disconnect", async () => {
       console.log(`👋 Usuario desconectado: ${socket.id}`);
 
-      // 1. Quitar de la cola de espera
       roomManager.removeFromQueue(socket.id);
 
       const activeRoom = roomManager.getRoomByPlayerId(socket.id);
       if (!activeRoom || activeRoom.isProcessingEnd || activeRoom.gameEnded) {
-        return; // La partida ya terminó o no existe, no hacer nada
+        return;
       }
 
-      // 2. PAUSAR LA PARTIDA (El bot se queda intacto esperando)
       console.log(
         `⏸️ Partida en sala ${activeRoom.roomId} pausada por desconexión`,
       );
@@ -493,7 +558,6 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
         disconnectedAt: Date.now(),
       };
 
-      // 3. Notificar al oponente (si es un bot, el frontend lo manejará o simplemente ignorará el socket)
       const opponentId = isWhite
         ? activeRoom.playerBlack.socketId
         : activeRoom.playerWhite.socketId;
@@ -502,18 +566,16 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
         waitingTime: TIME_CONSTANTS.RECONNECTION_TIMEOUT,
       });
 
-      // 4. Iniciar temporizador de abandono
       const reconnectionTimer = setTimeout(async () => {
         const currentRoom = roomManager.getRoom(activeRoom.roomId);
         if (!currentRoom || !currentRoom.playerDisconnected) {
-          return; // Ya reconectó
+          return;
         }
 
         console.log(
           `⏰ Tiempo de espera agotado en sala ${currentRoom.roomId}`,
         );
 
-        // Declarar victoria por abandono
         const disconnectedColor = isWhite ? "w" : "b";
         const winnerResult =
           disconnectedColor === "w" ? "black_win" : "white_win";
@@ -553,7 +615,6 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
         } catch (error) {
           console.error("❌ Error al procesar abandono:", error);
         } finally {
-          // ✅ AQUÍ SÍ eliminamos la sala y sus bots, porque la partida terminó definitivamente
           roomManager.removeRoom(currentRoom.roomId, botService);
         }
       }, TIME_CONSTANTS.RECONNECTION_TIMEOUT * 1000);
@@ -569,10 +630,8 @@ const setupRoomSocketsAndStart = (
   currentSocket: Socket,
   room: GameRoom,
 ) => {
-  // Unir al socket actual
   currentSocket.join(room.roomId);
 
-  // Unir al oponente
   const opponentId =
     room.playerWhite.socketId === currentSocket.id
       ? room.playerBlack.socketId
@@ -582,34 +641,30 @@ const setupRoomSocketsAndStart = (
     opponentSocket.join(room.roomId);
   }
 
-  // ⏱️ Enviar tiempos iniciales al frontend (en segundos)
   io.to(room.roomId).emit("game_started", {
     roomId: room.roomId,
     white: {
       id: room.playerWhite.socketId,
       nick: room.playerWhite.nick,
-      time: room.whiteTime, // ⏱️ Tiempo en segundos
+      time: room.whiteTime,
       isBot: room.playerWhite.isBot || false,
     },
     black: {
       id: room.playerBlack.socketId,
       nick: room.playerBlack.nick,
-      time: room.blackTime, // ⏱️ Tiempo en segundos
+      time: room.blackTime,
       isBot: room.playerBlack.isBot || false,
     },
     fen: room.chessInstance.fen(),
-    initialTime: room.initialTimeAllocated, // ⏱️ Tiempo base en segundos
+    initialTime: room.initialTimeAllocated,
   });
 
-  // ⏱️ INICIAR EL RELOJ OFICIAL (solo después de que comience el juego)
   startRoomTimer(io, room);
 };
 
-// ⏱️ MOTOR DEL RELOJ (TODOS LOS TIEMPOS EN SEGUNDOS)
+// ⏱️ MOTOR DEL RELOJ
 const startRoomTimer = (io: Server, room: GameRoom) => {
-  // ⏱️ Intervalo cada 1 segundo (1000ms)
   room.timerInterval = setInterval(async () => {
-    // ✅ Verificar que el juego haya empezado y no haya terminado
     if (!room.gameStarted || room.isProcessingEnd || room.gameEnded) {
       if (room.gameEnded && room.timerInterval) {
         clearInterval(room.timerInterval);
@@ -619,7 +674,6 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
     }
     const turn = room.chessInstance.turn();
 
-    // ⏱️ REDUCIR TIEMPO DEL JUGADOR ACTIVO (1 segundo)
     if (turn === "w") {
       if (room.whiteTime > 0) {
         room.whiteTime--;
@@ -630,10 +684,8 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
       }
     }
 
-    // Incrementar inactividad global
     room.moveInactivitySeconds++;
 
-    // ⏱️ VERIFICAR INACTIVIDAD EXTREMA (4 minutos)
     if (room.moveInactivitySeconds >= TIME_CONSTANTS.INACTIVITY_KICK_SECONDS) {
       roomManager.clearRoomTimers(room);
       room.isProcessingEnd = true;
@@ -668,8 +720,16 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
           whiteEloChange: eloResult.whiteEloChange,
           blackEloChange: eloResult.blackEloChange,
           players: [
-            { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
-            { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+            {
+              nick: eloResult.whiteNick,
+              newElo: eloResult.whiteNewElo,
+              eloChange: eloResult.whiteEloChange,
+            },
+            {
+              nick: eloResult.blackNick,
+              newElo: eloResult.blackNewElo,
+              eloChange: eloResult.blackEloChange,
+            },
           ],
         });
       } catch (err) {
@@ -680,7 +740,6 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
       return;
     }
 
-    // ⏱️ VERIFICAR TIME-OUT (tiempo agotado)
     if (room.whiteTime <= 0 || room.blackTime <= 0) {
       roomManager.clearRoomTimers(room);
       room.isProcessingEnd = true;
@@ -714,8 +773,16 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
           whiteEloChange: eloResult.whiteEloChange,
           blackEloChange: eloResult.blackEloChange,
           players: [
-            { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
-            { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+            {
+              nick: eloResult.whiteNick,
+              newElo: eloResult.whiteNewElo,
+              eloChange: eloResult.whiteEloChange,
+            },
+            {
+              nick: eloResult.blackNick,
+              newElo: eloResult.blackNewElo,
+              eloChange: eloResult.blackEloChange,
+            },
           ],
         });
       } catch (err) {
@@ -726,7 +793,6 @@ const startRoomTimer = (io: Server, room: GameRoom) => {
       return;
     }
 
-    // ⏱️ EMITIR ACTUALIZACIÓN DE RELOJES (cada segundo)
     io.to(room.roomId).emit("clock_update", {
       whiteTime: room.whiteTime,
       blackTime: room.blackTime,

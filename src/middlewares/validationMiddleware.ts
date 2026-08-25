@@ -1,6 +1,7 @@
 // src/middlewares/validationMiddleware.ts
 import { Request, Response, NextFunction } from 'express';
 import { extractId } from '../utils/paramUtil';
+import { BOT_NAMES_LOWERCASE } from '../config/botConfig';
 
 // ✅ Constantes de validación
 const VALIDATION_RULES = {
@@ -51,8 +52,15 @@ export const validateRegister = (req: Request, res: Response, next: NextFunction
     });
     return;
   }
+  // ✅ 4. Validar que el nick no sea un nombre reservado para bots
+  if (BOT_NAMES_LOWERCASE.includes(cleanNick.toLowerCase())) {
+    res.status(400).json({ 
+      message: `El nombre "${cleanNick}" está reservado para bots. Por favor, elige otro.` 
+    });
+    return;
+  }
 
-  // 4. Validar Email
+  // 5. Validar Email
   if (!VALIDATION_RULES.EMAIL_REGEX.test(cleanEmail)) {
     res.status(400).json({ 
       message: 'Por favor, proporciona un correo electrónico válido.' 
@@ -60,7 +68,7 @@ export const validateRegister = (req: Request, res: Response, next: NextFunction
     return;
   }
 
-  // 5. Validar Contraseña
+  // 6. Validar Contraseña
   if (password.length < VALIDATION_RULES.PASSWORD_MIN_LENGTH) {
     res.status(400).json({ 
       message: `La contraseña debe tener como mínimo ${VALIDATION_RULES.PASSWORD_MIN_LENGTH} caracteres.` 
@@ -68,7 +76,7 @@ export const validateRegister = (req: Request, res: Response, next: NextFunction
     return;
   }
 
-  // 6. Validación adicional: contraseña no debe ser igual al nick o email
+  // 7. Validación adicional: contraseña no debe ser igual al nick o email
   if (password.toLowerCase() === cleanNick.toLowerCase()) {
     res.status(400).json({ 
       message: 'La contraseña no puede ser igual al nick de usuario.' 
@@ -148,6 +156,12 @@ export const validateUpdateProfile = (req: Request, res: Response, next: NextFun
     if (!VALIDATION_RULES.NICK_REGEX.test(cleanNick)) {
       res.status(400).json({ 
         message: 'El Nick solo puede contener letras, números y guiones bajos.' 
+      });
+      return;
+    }
+    if (BOT_NAMES_LOWERCASE.includes(cleanNick.toLowerCase())) {
+      res.status(400).json({ 
+        message: `El nombre "${cleanNick}" está reservado para bots. Por favor, elige otro.` 
       });
       return;
     }

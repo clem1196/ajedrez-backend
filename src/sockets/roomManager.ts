@@ -48,6 +48,7 @@ export interface GameRoom {
     disconnectedAt: number;
   };
   _reconnectionTimer?: NodeJS.Timeout;
+  drawOffered?: boolean;
 }
 
 export class RoomManager {
@@ -58,8 +59,9 @@ export class RoomManager {
     socketId: string,
     nick: string,
     minutes: number,
+    elo: number = 1200,
   ): GameRoom | null {
-    const newPlayer: Player = { socketId, nick, isBot: false };
+    const newPlayer: Player = { socketId, nick, isBot: false, elo };
 
     if (!this.guestQueues.has(minutes)) {
       this.guestQueues.set(minutes, []);

@@ -16,8 +16,7 @@ export const createAdminRoutes = (
 
   // ✅ Rutas de administración de bots
   router.post('/bot-config', adminController.updateBotConfig);
-  router.get('/bot-stats', adminController.getBotStats);
-  router.post('/bot-difficulty', adminController.setBotDifficulty);
+  router.get('/bot-stats', adminController.getBotStats); 
   console.log(`📋 Rutas de admin registradas: /bot-config, /bot-stats, /bot-difficulty`);
   
   return router;

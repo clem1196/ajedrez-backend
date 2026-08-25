@@ -1,8 +1,7 @@
 // src/services/bots/botBase.ts
-import { Chess } from "chess.js";
 import { RoomManager } from "../../sockets/roomManager";
 import { EloService } from "../../services/eloService";
-import { getBestMove } from "../../helpers/stockfishHelper";
+import { getBestMove, getEvaluation } from "../../helpers/stockfishHelper";
 import { BOT_CONFIG, BOT_LEVELS, BotConfig } from "../../config/botConfig";
 
 /**
@@ -34,6 +33,7 @@ export abstract class BotBase {
 
   // Configuración actual del bot (según dificultad)
   protected config: BotConfig;
+  public lastGameResult?: "win" | "loss" | "draw";
 
   constructor(
     roomManager: RoomManager,
@@ -51,6 +51,7 @@ export abstract class BotBase {
     this.config = config;
 
     this.activeBots = new Map();
+    this.lastGameResult = undefined;
   }
 
   // ──────────────────────────────────────────────
@@ -85,15 +86,10 @@ export abstract class BotBase {
   public getRandomName(): string {
     // Puedes definir listas de nombres por dificultad o usar el nombre fijo de la configuración
     const namesByDifficulty: Record<string, string[]> = {
-      easy: ["Bot_Novato", "Bot_Aprendiz", "Bot_Principiante", "Bot_Iniciante"],
-      medium: ["Bot_Estratega", "Bot_Tactico", "Bot_Calmado", "Bot_Aficionado"],
-      hard: ["Bot_Veterano", "Bot_Experto", "Bot_Pro", "Bot_Avanzado"],
-      grandmaster: [
-        "Bot_Master",
-        "Bot_GranMaestro",
-        "Bot_Leyenda",
-        "Bot_Stockfish",
-      ],
+      easy: ["Novato", "Aprendiz", "Principiante", "Iniciante", "PechoFrio"],
+      medium: ["Estratega", "Tactico", "Calmado", "Aficionado", "Resolutivo"],
+      hard: ["Veterano", "Experto", "Maestro", "Avanzado", "Titan"],
+      grandmaster: ["Master", "GranMaestro", "Leyenda", "Stockfish"],
     };
     const names =
       namesByDifficulty[this.config.difficulty] || namesByDifficulty.easy;
@@ -106,11 +102,11 @@ export abstract class BotBase {
    */
   public getRandomElo(): number {
     const base = this.config.elo;
-    const range = 150; // ±150
-    return Math.max(
-      100,
-      Math.min(3000, base + Math.floor(Math.random() * range * 2 - range)),
-    );
+    const range = 50; // ±50 para mantenerlo muy cercano a la capacidad esperada
+    const generatedElo = base + Math.floor(Math.random() * range * 2 - range);
+
+    // Regla del piso de Elo: nunca menor a 1200
+    return Math.max(1200, Math.min(3000, generatedElo));
   }
 
   // ──────────────────────────────────────────────
@@ -170,7 +166,10 @@ export abstract class BotBase {
         winnerMessage: `🏆 ¡Victoria! ${winnerNick} gana por jaque mate.`,
         loserMessage: `💀 Derrota: ${loserNick} pierde por jaque mate.`,
       });
-
+      const botIsWinner =
+        (winnerColor === "w" && room.playerWhite.isBot) ||
+        (winnerColor === "b" && room.playerBlack.isBot);
+      this.lastGameResult = botIsWinner ? "win" : "loss";
       // Eliminar el bot de la sala
       const bot = this.activeBots.get(
         winnerColor === "w"
@@ -224,7 +223,7 @@ export abstract class BotBase {
           },
         ],
       });
-
+       this.lastGameResult = "draw";
       // Eliminar el bot de la sala (si existe)
       const bot = this.activeBots.get(
         room.playerWhite?.isBot
@@ -302,7 +301,20 @@ export abstract class BotBase {
    * La implementación debe asignarle color, socketId, etc.
    */
   public abstract createBot(roomId: string, botColor: "w" | "b"): Bot;
+  public async shouldSurrender(roomId: string): Promise<boolean> {
+    const room = this.roomManager.getRoom(roomId);
+    if (!room) return false;
 
+    const fen = room.chessInstance.fen();
+    const evaluation = getEvaluation(fen);
+    // Si está perdiendo por más de 500 centipawns, se rinde
+    if (await evaluation < -500) {
+      // Además, verificar que no haya posibilidades de jaque mate
+      // (esto ya está contemplado por la evaluación)
+      return true;
+    }
+    return false;
+  }
   // ──────────────────────────────────────────────
   //  Movimiento del bot (usando Stockfish)
   // ──────────────────────────────────────────────
@@ -313,14 +325,10 @@ export abstract class BotBase {
    * usando los parámetros de skillLevel y depth definidos en la configuración.
    */
   public async makeMove(roomId: string, botColor: "w" | "b"): Promise<void> {
-    if (!BOT_CONFIG.ENABLED) {
-      console.log("🤖 Bots deshabilitados por configuración.");
-      return;
-    }
+    if (!BOT_CONFIG.ENABLED) return;
 
     const room = this.roomManager.getRoom(roomId);
-    if (!room) return;
-    if (room.gameEnded || room.isProcessingEnd) return;
+    if (!room || room.gameEnded || room.isProcessingEnd) return;
     if (room.chessInstance.turn() !== botColor) return;
 
     const moves = room.chessInstance.moves({ verbose: true });
@@ -347,21 +355,12 @@ export abstract class BotBase {
     console.log(`🤖 Bot ${bot.nick} está pensando... (${thinkingTime}ms)`);
 
     bot.thinkingTimer = setTimeout(async () => {
-      // 🛑 Verificar que la sala siga activa y el turno sea del bot
-      const room = this.roomManager.getRoom(roomId);
-      if (
-        !room ||
-        room.gameEnded ||
-        room.isProcessingEnd ||
-        room.chessInstance.turn() !== botColor
-      ) {
-        console.log(
-          `⏹️ Bot ${bot.nick} canceló movimiento: sala terminada o turno cambiado.`,
-        );
+      const currentRoom = this.roomManager.getRoom(roomId);
+      if (!currentRoom || currentRoom.gameEnded || currentRoom.isProcessingEnd)
         return;
-      }
+      if (currentRoom.chessInstance.turn() !== botColor) return;
 
-      const fen = room.chessInstance.fen();
+      const fen = currentRoom.chessInstance.fen();
       const { skillLevel, depth } = this.config;
 
       try {
@@ -373,7 +372,7 @@ export abstract class BotBase {
           const promotion =
             bestMove.length === 5 ? bestMove.charAt(4) : undefined;
 
-          const result = room.chessInstance.move({
+          const result = currentRoom.chessInstance.move({
             from,
             to,
             promotion,
@@ -382,10 +381,10 @@ export abstract class BotBase {
           if (result) {
             this.io.to(roomId).emit("move_made", {
               move: result,
-              fen: room.chessInstance.fen(),
-              turn: room.chessInstance.turn(),
-              whiteTime: room.whiteTime,
-              blackTime: room.blackTime,
+              fen: currentRoom.chessInstance.fen(),
+              turn: currentRoom.chessInstance.turn(),
+              whiteTime: currentRoom.whiteTime,
+              blackTime: currentRoom.blackTime,
               isBotMove: true,
               botNick: bot.nick,
             });
@@ -394,29 +393,30 @@ export abstract class BotBase {
               `🤖 Bot ${bot.nick} (${this.config.difficulty}) movió: ${result.from} -> ${result.to}`,
             );
 
-            if (room.chessInstance.isCheckmate()) {
-              await this.handleCheckmate(room, botColor);
+            // ✅ Después de mover, verificar fin de partida
+            if (currentRoom.chessInstance.isCheckmate()) {
+              await this.handleCheckmate(currentRoom, botColor);
               return;
             }
-            if (room.chessInstance.isStalemate()) {
-              await this.handleStalemate(room);
+            if (currentRoom.chessInstance.isStalemate()) {
+              await this.handleStalemate(currentRoom);
               return;
             }
-          } else {
-            console.error(
-              `⚠️ Movimiento UCI inválido para chess.js: ${bestMove}`,
-            );
+
+            // ✅ Ofrecer tablas si corresponde
+            this.maybeOfferDraw(currentRoom);
           }
         }
       } catch (err) {
         console.error("❌ Error al calcular jugada con Stockfish:", err);
-
-        // 🆘 Fallback: movimiento aleatorio
-        const fallbackMoves = room.chessInstance.moves({ verbose: true });
+        // Fallback a movimiento aleatorio (código existente)
+        const fallbackMoves = currentRoom.chessInstance.moves({
+          verbose: true,
+        });
         if (fallbackMoves.length > 0) {
           const randomMove =
             fallbackMoves[Math.floor(Math.random() * fallbackMoves.length)];
-          const result = room.chessInstance.move({
+          const result = currentRoom.chessInstance.move({
             from: randomMove.from,
             to: randomMove.to,
             promotion: randomMove.promotion || "q",
@@ -424,27 +424,23 @@ export abstract class BotBase {
           if (result) {
             this.io.to(roomId).emit("move_made", {
               move: result,
-              fen: room.chessInstance.fen(),
-              turn: room.chessInstance.turn(),
-              whiteTime: room.whiteTime,
-              blackTime: room.blackTime,
+              fen: currentRoom.chessInstance.fen(),
+              turn: currentRoom.chessInstance.turn(),
+              whiteTime: currentRoom.whiteTime,
+              blackTime: currentRoom.blackTime,
               isBotMove: true,
               botNick: bot.nick,
             });
-            console.log(
-              `🤖 Bot ${bot.nick} usó movimiento aleatorio por timeout: ${result.from}->${result.to}`,
-            );
-            if (room.chessInstance.isCheckmate()) {
-              await this.handleCheckmate(room, botColor);
+            if (currentRoom.chessInstance.isCheckmate()) {
+              await this.handleCheckmate(currentRoom, botColor);
               return;
             }
-            if (room.chessInstance.isStalemate()) {
-              await this.handleStalemate(room);
+            if (currentRoom.chessInstance.isStalemate()) {
+              await this.handleStalemate(currentRoom);
               return;
             }
+            this.maybeOfferDraw(currentRoom);
           }
-        } else {
-          console.warn(`⚠️ Bot ${bot.nick} sin movimientos disponibles.`);
         }
       } finally {
         if (bot.thinkingTimer) {
@@ -453,5 +449,172 @@ export abstract class BotBase {
         }
       }
     }, thinkingTime);
+  }
+  public async evaluateDrawOffer(roomId: string): Promise<boolean> {
+    const room = this.roomManager.getRoom(roomId);
+    if (!room) return false;
+
+    const fen = room.chessInstance.fen();
+    // Llamar a Stockfish para evaluar la posición
+    const evaluation = getEvaluation(fen); // Implementar en stockfishHelper
+    // Si el bot está perdiendo por más de 200 centipawns, acepta tablas
+    // También si hay poca diferencia de material y la posición es repetitiva
+    if (await evaluation < -200) return true;
+    // Si el bot está ganando, rechaza
+    if (await evaluation > 200) return false;
+    // Si está igualada, acepta con probabilidad según dificultad
+    const drawAcceptanceProb = this.config.drawAcceptanceProb || 0.3;
+    return Math.random() < drawAcceptanceProb;
+  }
+
+  public evaluateRematch(roomId: string): boolean {
+    // Por defecto, siempre acepta revancha. Pero puedes agregar lógica según el resultado.
+    return true; // Siempre acepta
+  }
+  // ──────────────────────────────────────────────
+  //  NUEVOS MÉTODOS PARA DECISIONES DEL BOT
+  // ──────────────────────────────────────────────
+
+  /**
+   * 🤖 Decide si el bot acepta una oferta de tablas
+   * @param room - Sala actual
+   * @returns true si acepta, false si rechaza
+   */
+  public shouldAcceptDraw(room: any): boolean {
+    // Si la partida ya terminó, no aceptar
+    if (room.gameEnded || room.isProcessingEnd) return false;
+
+    const chess = room.chessInstance;
+    const board = chess.board();
+
+    // Contar material (simplificado)
+    let whiteMaterial = 0;
+    let blackMaterial = 0;
+    const pieceValues: Record<string, number> = {
+      p: 1,
+      n: 3,
+      b: 3,
+      r: 5,
+      q: 9,
+      k: 100,
+    };
+
+    for (let row of board) {
+      for (let square of row) {
+        if (square) {
+          const color = square.color;
+          const type = square.type;
+          const value = pieceValues[type] || 0;
+          if (color === "w") whiteMaterial += value;
+          else blackMaterial += value;
+        }
+      }
+    }
+
+    // Si el bot tiene menos material que el humano, acepta tablas (está perdiendo)
+    const isBotWhite =
+      this.activeBots.get(room.playerWhite.socketId) !== undefined;
+    const botMaterial = isBotWhite ? whiteMaterial : blackMaterial;
+    const humanMaterial = isBotWhite ? blackMaterial : whiteMaterial;
+
+    // Si el bot tiene menos material o la partida está muy equilibrada (pocas piezas)
+    if (botMaterial < humanMaterial - 2) {
+      console.log(`🤖 Bot decide aceptar tablas (desventaja material)`);
+      return true;
+    }
+
+    // Si hay muy pocas piezas (final de partida), aceptar tablas para no arriesgar
+    if (whiteMaterial + blackMaterial < 20) {
+      console.log(`🤖 Bot decide aceptar tablas (final de partida)`);
+      return true;
+    }
+
+    // Si el bot está ganando por mucho, rechazar
+    if (botMaterial > humanMaterial + 5) {
+      console.log(`🤖 Bot decide rechazar tablas (ventaja clara)`);
+      return false;
+    }
+
+    // Decisión aleatoria en casos dudosos (30% de aceptar)
+    const random = Math.random();
+    const accept = random < 0.3;
+    console.log(
+      `🤖 Bot decide ${accept ? "aceptar" : "rechazar"} tablas (aleatorio)`,
+    );
+    return accept;
+  }
+  /**
+   * 🤖 Obtener la instancia del bot (para decisiones)
+   */
+
+  /**
+   * 🤖 Decide si el bot acepta una revancha
+   * @param room - Sala de la partida anterior
+   * @returns true si acepta, false si rechaza
+   */
+  public shouldAcceptRematch(room: any): boolean {
+    // Siempre acepta revancha (puedes ajustar)
+    // Pero podríamos basarlo en el resultado anterior
+    if (this.lastGameResult === "loss") {
+      // Si perdió, quiere revancha (80%)
+      const accept = Math.random() < 0.8;
+      console.log(`🤖 Bot ${accept ? "acepta" : "rechaza"} revancha (perdió)`);
+      return accept;
+    }
+    if (this.lastGameResult === "win") {
+      // Si ganó, puede aceptar o no (50%)
+      const accept = Math.random() < 0.5;
+      console.log(`🤖 Bot ${accept ? "acepta" : "rechaza"} revancha (ganó)`);
+      return accept;
+    }
+    // Si fue tablas, acepta siempre
+    console.log(`🤖 Bot acepta revancha (tablas)`);
+    return true;
+  }
+
+  /**
+   * 🤖 El bot puede ofrecer tablas proactivamente (opcional)
+   * Se llama después de cada movimiento del bot
+   */
+  public maybeOfferDraw(room: any): void {
+    if (room.gameEnded || room.isProcessingEnd) return;
+    if (room.drawOffered) return; // Ya hay oferta pendiente
+
+    const chess = room.chessInstance;
+    // Si la partida lleva más de 30 movimientos y está equilibrada
+    if (room.moveCount > 30) {
+      const board = chess.board();
+      let whiteMaterial = 0;
+      let blackMaterial = 0;
+      // ... calcular material igual que antes
+      // Si material total < 25 y diferencia < 2, ofrecer tablas
+      if (
+        whiteMaterial + blackMaterial < 25 &&
+        Math.abs(whiteMaterial - blackMaterial) < 3
+      ) {
+        console.log(`🤖 Bot ofrece tablas (partida equilibrada)`);
+        const botSocketId = this.activeBots.values().next().value?.socketId;
+        if (botSocketId) {
+          // Emitir oferta de tablas desde el bot
+          const botPlayer =
+            room.playerWhite.socketId === botSocketId
+              ? room.playerWhite
+              : room.playerBlack;
+          const opponentSocketId =
+            botPlayer === room.playerWhite
+              ? room.playerBlack.socketId
+              : room.playerWhite.socketId;
+          this.io.to(opponentSocketId).emit("draw_offered");
+          room.drawOffered = true;
+          // Temporizador para cancelar oferta si no responde en 10 segundos
+          setTimeout(() => {
+            if (room && room.drawOffered) {
+              room.drawOffered = false;
+              this.io.to(room.roomId).emit("draw_offer_canceled");
+            }
+          }, 10000);
+        }
+      }
+    }
   }
 }

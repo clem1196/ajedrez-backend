@@ -11,28 +11,14 @@ export class AdminController {
   }
 
   /**
-   * 🎛️ Actualizar configuración global de bots
+   * 🎛️ Actualizar configuración global de bots (sin dificultad)
    */
   public updateBotConfig = (req: Request, res: Response): void => {
     try {
-      const { enabled, difficulty, botProbability, minPlayersToDisable } = req.body;
+      const { enabled, botProbability, minPlayersToDisable } = req.body;
 
       if (enabled !== undefined) {
         BOT_CONFIG.ENABLED = Boolean(enabled);
-      }
-
-      if (difficulty) {
-        const validDifficulties = ['easy', 'medium', 'hard', 'grandmaster'];
-        const normalizedDifficulty = String(difficulty).toLowerCase();
-
-        if (!validDifficulties.includes(normalizedDifficulty)) {
-          res.status(400).json({
-            status: 'error',
-            message: `Dificultad inválida. Opciones: ${validDifficulties.join(', ')}`,
-          });
-          return;
-        }
-        BOT_CONFIG.DIFFICULTY = normalizedDifficulty;
       }
 
       if (botProbability !== undefined) {
@@ -76,7 +62,6 @@ export class AdminController {
       });
     }
   };
-
   /**
    * 📊 Obtener estadísticas de bots
    */
@@ -97,48 +82,5 @@ export class AdminController {
         message: 'Error obteniendo estadísticas de los bots',
       });
     }
-  };
-
-  /**
-   * 🎯 Establecer dificultad global de bots
-   */
-  public setBotDifficulty = (req: Request, res: Response): void => {
-    try {
-      const { difficulty } = req.body;
-
-      if (!difficulty) {
-        res.status(400).json({
-          status: 'error',
-          message: 'El campo "difficulty" es requerido',
-        });
-        return;
-      }
-
-      const validDifficulties = ['easy', 'medium', 'hard', 'grandmaster'];
-      const normalizedDifficulty = String(difficulty).toLowerCase();
-
-      if (!validDifficulties.includes(normalizedDifficulty)) {
-        res.status(400).json({
-          status: 'error',
-          message: `Dificultad inválida. Opciones: ${validDifficulties.join(', ')}`,
-        });
-        return;
-      }
-
-      BOT_CONFIG.DIFFICULTY = normalizedDifficulty;
-      console.log(`🎯 Dificultad de bots cambiada a: ${normalizedDifficulty}`);
-
-      res.json({
-        status: 'success',
-        message: `Dificultad cambiada a ${normalizedDifficulty}`,
-        config: BOT_CONFIG,
-      });
-    } catch (error) {
-      console.error('❌ Error cambiando dificultad:', error);
-      res.status(500).json({
-        status: 'error',
-        message: 'Error interno al cambiar la dificultad',
-      });
-    }
-  };
+  };  
 }

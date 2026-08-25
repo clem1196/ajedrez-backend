@@ -25,13 +25,47 @@ export class BotService {
     }
     return this.botInstances.get(difficulty)!;
   }
+ /**
+   * 🤖 Obtener la instancia del bot que pertenece a un socketId específico
+   * @param socketId - ID del socket del bot (puede ser el ID del bot o el socketId)
+   * @returns La instancia de BotBase si existe, o undefined
+   */
+  public getBotInstanceForPlayer(socketId: string): BotBase | undefined {
+    // 1. Buscar directamente en las instancias activas
+    for (const [, instance] of this.botInstances) {
+      if (instance.activeBots.has(socketId)) {
+        return instance;
+      }
+    }
+
+    // 2. Si no se encuentra, buscar en la lista de bots activos del servicio
+    const bot = this.activeBots.get(socketId);
+    if (bot) {
+      // Buscar la dificultad correspondiente al bot
+      // (asumiendo que el bot tiene la dificultad almacenada, o podemos inferirla)
+      // Como no la tenemos almacenada, podemos usar la que nos pasan al crearlo
+      // Pero mejor: recorrer las instancias y verificar si el bot está en su mapa
+      for (const [, instance] of this.botInstances) {
+        if (instance.activeBots.has(bot.id)) {
+          return instance;
+        }
+      }
+    }
+
+    return undefined;
+  }
+  public createBot(difficulty: string, roomId: string, botColor: "w" | "b") {
+    const botInstance = this.getBotInstance(difficulty);
+    return botInstance.createBot(roomId, botColor);
+  }
   /**
    * 🎯 Determinar nivel automáticamente basándose en el Elo del jugador
    */
   public getDifficultyByElo(playerElo: number): string {
-    if (playerElo < 1200) return "easy";
-    if (playerElo < 1600) return "medium";
-    if (playerElo < 1900) return "hard";
+    const elo = Math.max(1200, playerElo); // Aseguramos piso 1200
+    if (elo < 1400) return "easy";
+    if (elo < 1750) return "medium";
+    if (elo < 2200) return "hard";
     return "grandmaster";
   }
   /**
@@ -67,25 +101,24 @@ export class BotService {
     for (const [, instance] of this.botInstances) {
       instance.activeBots = this.activeBots;
     }
-
-    const difficulty =
-      botData.difficulty || BOT_CONFIG_GLOBAL.DIFFICULTY || "easy";
-    console.log(
-      `🤖 Bot ${bot.nick} (${bot.elo} Elo) agregado al servicio para sala ${bot.roomId} (dificultad: ${difficulty})`,
-    );
     return bot;
   }
 
   /**
    * 🎮 Crear un bot para una partida
    */
-  public createBotForGame(roomId: string, requestedDifficulty?: string): Bot | null {
-    const room = this.roomManager.getRoom(roomId);
-    if (!room) {
-      console.log(`❌ Sala ${roomId} no encontrada para crear bot`);
+  public createBotForGame(roomId: string): Bot | null {
+    if (!BOT_CONFIG_GLOBAL.ENABLED) {
+      console.log(
+        `🤖 Creación de bot cancelada: Bots deshabilitados por configuración admin.`,
+      );
       return null;
     }
-    // 1. Obtener Elo del jugador humano presente en la sala
+
+    const room = this.roomManager.getRoom(roomId);
+    if (!room) return null;
+
+    // Obtener jugador humano presente en la sala
     const humanPlayer =
       room.playerWhite?.isBot === false
         ? room.playerWhite
@@ -93,53 +126,33 @@ export class BotService {
           ? room.playerBlack
           : null;
 
-    // 2. Determinar dificultad: Usar la solicitada, calcularla por Elo o usar fallback
-    let difficulty = requestedDifficulty || room.difficulty;
-    if (!difficulty && humanPlayer) {
-      difficulty = this.getDifficultyByElo(humanPlayer.elo || 1200);
-    }
-    if (!difficulty) {
-      difficulty = BOT_CONFIG_GLOBAL.DIFFICULTY || "easy";
-    }
+    // Obtener Elo del jugador (piso 1200)
+    const playerElo = Math.max(1200, humanPlayer?.elo || 1200);
+    const difficulty = this.getDifficultyByElo(playerElo);
 
     const botInstance = this.getBotInstance(difficulty);
-
-    // ✅ Asegurar que la instancia use el mismo activeBots
     botInstance.activeBots = this.activeBots;
 
-    // ✅ Determinar color faltante
     const hasWhite =
       room.playerWhite && room.playerWhite.nick && room.playerWhite.nick !== "";
     const hasBlack =
       room.playerBlack && room.playerBlack.nick && room.playerBlack.nick !== "";
 
-    if (hasWhite && hasBlack) {
-      console.log(
-        `ℹ️ Sala ${roomId} ya tiene ambos jugadores, no se necesita bot`,
-      );
-      return null;
-    }
-
-    const isWhiteBot = room.playerWhite?.isBot || false;
-    const isBlackBot = room.playerBlack?.isBot || false;
-
-    if (isWhiteBot || isBlackBot) {
-      console.log(`ℹ️ Sala ${roomId} ya tiene un bot, no se necesita otro`);
-      return null;
-    }
+    if (hasWhite && hasBlack) return null;
 
     const botColor = !hasWhite ? "w" : "b";
-
-    // ✅ Crear bot usando la instancia específica
     const bot = botInstance.createBot(roomId, botColor);
 
-    // ✅ Asignar bot a la sala
+    // Asignar el Elo dinamizado al bot
+    bot.elo = botInstance.getRandomElo();
+
     if (botColor === "w") {
       room.playerWhite = {
         socketId: bot.id,
         nick: bot.nick,
         color: "w",
         isBot: true,
+        elo: bot.elo,
       };
     } else {
       room.playerBlack = {
@@ -147,16 +160,16 @@ export class BotService {
         nick: bot.nick,
         color: "b",
         isBot: true,
+        elo: bot.elo,
       };
     }
 
-    // ✅ Guardar en activeBots (ya debería estar, pero por si acaso)
     if (!this.activeBots.has(bot.id)) {
       this.activeBots.set(bot.id, bot);
     }
 
     console.log(
-      `🤖 Bot ${bot.nick} (${bot.elo} Elo) creado como ${botColor === "w" ? "Blancas" : "Negras"} en sala ${roomId} (dificultad: ${difficulty})`,
+      `🤖 Bot ${bot.nick} (${bot.elo} Elo) creado para jugador con Elo ${playerElo} (Dificultad: ${difficulty})`,
     );
     return bot;
   }
@@ -165,19 +178,20 @@ export class BotService {
    * 🤖 Hacer que un bot mueva
    */
   public async botMakeMove(roomId: string, botColor: "w" | "b"): Promise<void> {
+    if (!BOT_CONFIG_GLOBAL.ENABLED) return;
+
     const room = this.roomManager.getRoom(roomId);
     if (!room) return;
 
-    // Obtener el bot activo en la sala
-    const botSocketId =
-      botColor === "w"
-        ? room.playerWhite?.socketId
-        : room.playerBlack?.socketId;
-    const bot = botSocketId ? this.activeBots.get(botSocketId) : null;
+    const humanPlayer =
+      room.playerWhite?.isBot === false
+        ? room.playerWhite
+        : room.playerBlack?.isBot === false
+          ? room.playerBlack
+          : null;
 
-    // Si la sala o el bot guardan la dificultad específica, la usamos
-    const difficulty =
-      room.difficulty || BOT_CONFIG_GLOBAL.DIFFICULTY || "easy";
+    const playerElo = Math.max(1200, humanPlayer?.elo || 1200);
+    const difficulty = this.getDifficultyByElo(playerElo);
     const botInstance = this.getBotInstance(difficulty);
 
     await botInstance.makeMove(roomId, botColor);
@@ -193,12 +207,8 @@ export class BotService {
       bot.thinkingTimer = undefined;
     }
     this.activeBots.delete(botId);
-    console.log(`🗑️ Bot ${botId} eliminado de sala ${roomId}`);
   }
 
-  /**
-   * 🧹 Limpiar bots inactivos
-   */
   public cleanupInactiveBots(): void {
     for (const [botId, bot] of this.activeBots) {
       if (!bot.roomId) {
@@ -212,9 +222,6 @@ export class BotService {
     }
   }
 
-  /**
-   * 🤖 Obtener información de un bot
-   */
   public getBotInfo(socketId: string): Bot | undefined {
     return this.activeBots.get(socketId);
   }

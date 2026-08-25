@@ -96,6 +96,18 @@ const registerGameHandlers = (io, socket, roomManager, botService) => {
                 // ✅ OBTENER EL SIGUIENTE TURNO
                 const nextTurnColor = room.chessInstance.turn();
                 const nextPlayer = nextTurnColor === "w" ? room.playerWhite : room.playerBlack;
+                if (nextPlayer && nextPlayer.isBot) {
+                    setTimeout(() => {
+                        const currentRoom = roomManager.getRoom(roomId);
+                        if (!currentRoom ||
+                            currentRoom.gameEnded ||
+                            currentRoom.isProcessingEnd)
+                            return;
+                        if (currentRoom.chessInstance.turn() !== nextTurnColor)
+                            return;
+                        botService.botMakeMove(roomId, nextTurnColor);
+                    }, 1500);
+                }
                 // ✅ VERIFICAR JAQUE MATE (ANTES DE CUALQUIER OTRA COSA)
                 if (room.chessInstance.isCheckmate()) {
                     console.log(`♟️ ¡JAQUE MATE! El jugador ${nextTurnColor === "w" ? "Blancas" : "Negras"} ha perdido.`);
@@ -129,8 +141,16 @@ const registerGameHandlers = (io, socket, roomManager, botService) => {
                             whiteEloChange: eloResult.whiteEloChange,
                             blackEloChange: eloResult.blackEloChange,
                             players: [
-                                { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
-                                { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+                                {
+                                    nick: eloResult.whiteNick,
+                                    newElo: eloResult.whiteNewElo,
+                                    eloChange: eloResult.whiteEloChange,
+                                },
+                                {
+                                    nick: eloResult.blackNick,
+                                    newElo: eloResult.blackNewElo,
+                                    eloChange: eloResult.blackEloChange,
+                                },
                             ],
                             winnerMessage: `🏆 ¡Victoria! ${winnerNick} gana por jaque mate.`,
                             loserMessage: `💀 Derrota: ${loserNick} pierde por jaque mate.`,
@@ -172,8 +192,16 @@ const registerGameHandlers = (io, socket, roomManager, botService) => {
                             whiteEloChange: eloResult.whiteEloChange,
                             blackEloChange: eloResult.blackEloChange,
                             players: [
-                                { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
-                                { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+                                {
+                                    nick: eloResult.whiteNick,
+                                    newElo: eloResult.whiteNewElo,
+                                    eloChange: eloResult.whiteEloChange,
+                                },
+                                {
+                                    nick: eloResult.blackNick,
+                                    newElo: eloResult.blackNewElo,
+                                    eloChange: eloResult.blackEloChange,
+                                },
                             ],
                         });
                         console.log(`✅ Ahogado detectado y procesado para sala ${roomId}`);
@@ -339,8 +367,16 @@ const registerGameHandlers = (io, socket, roomManager, botService) => {
                                     whiteEloChange: eloResult.whiteEloChange,
                                     blackEloChange: eloResult.blackEloChange,
                                     players: [
-                                        { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
-                                        { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+                                        {
+                                            nick: eloResult.whiteNick,
+                                            newElo: eloResult.whiteNewElo,
+                                            eloChange: eloResult.whiteEloChange,
+                                        },
+                                        {
+                                            nick: eloResult.blackNick,
+                                            newElo: eloResult.blackNewElo,
+                                            eloChange: eloResult.blackEloChange,
+                                        },
                                     ],
                                     winnerMessage: `🏆 Victoria! ${winnerNick} gana por abandono de ${loserNick}.`,
                                     loserMessage: `💀 Derrota: ${loserNick} pierde por límite de tiempo de espera.`,
@@ -393,17 +429,57 @@ const registerGameHandlers = (io, socket, roomManager, botService) => {
             whiteEloChange: eloResult.whiteEloChange,
             blackEloChange: eloResult.blackEloChange,
             players: [
-                { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
-                { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+                {
+                    nick: eloResult.whiteNick,
+                    newElo: eloResult.whiteNewElo,
+                    eloChange: eloResult.whiteEloChange,
+                },
+                {
+                    nick: eloResult.blackNick,
+                    newElo: eloResult.blackNewElo,
+                    eloChange: eloResult.blackEloChange,
+                },
             ],
         });
         roomManager.removeRoom(roomId);
     });
     // --- 🤝 TABLAS ---
-    socket.on("offer_draw", ({ roomId }) => {
+    socket.on("offer_draw", async ({ roomId }) => {
         const room = roomManager.getRoom(roomId);
-        if (!room)
+        if (!room || room.gameEnded || room.isProcessingEnd)
             return;
+        const isWhite = room.playerWhite.socketId === socket.id;
+        const opponent = isWhite ? room.playerBlack : room.playerWhite;
+        // Si el oponente es un bot, tomar decisión automática
+        if (opponent.isBot) {
+            console.log(`🤖 El bot ${opponent.nick} recibe oferta de tablas`);
+            // Obtener la instancia del bot desde botService
+            const botInstance = botService.getBotInstanceForPlayer(opponent.socketId);
+            if (botInstance) {
+                const shouldAccept = botInstance.evaluateDrawOffer(roomId);
+                if (await shouldAccept) {
+                    // ✅ Bot acepta tablas
+                    console.log(`🤖 Bot ${opponent.nick} ACEPTA tablas`);
+                    io.to(roomId).emit("draw_accepted");
+                    // Emitir evento de aceptación de tablas (similar a accept_draw)
+                    socket.emit("draw_accepted"); // notificar al que ofreció
+                    // Procesar final de partida como tablas
+                    processDraw(io, room, roomManager, "bot_accept");
+                }
+                else {
+                    // ✅ Bot rechaza tablas
+                    console.log(`🤖 Bot ${opponent.nick} RECHAZA tablas`);
+                    socket.emit("draw_rejected");
+                    io.to(opponent.socketId).emit("draw_rejected");
+                }
+            }
+            else {
+                // Fallback: rechazar si no se encuentra instancia
+                socket.emit("draw_rejected");
+            }
+            return;
+        }
+        // Si el oponente es humano, reenviar la oferta normalmente
         socket.to(roomId).emit("draw_offered");
     });
     socket.on("cancel_draw_offer", ({ roomId }) => {
@@ -419,6 +495,14 @@ const registerGameHandlers = (io, socket, roomManager, botService) => {
         const room = roomManager.getRoom(roomId);
         if (!room || room.isProcessingEnd)
             return;
+        // Si el que acepta es un bot, ya se manejó en offer_draw, pero por seguridad
+        const isWhite = room.playerWhite.socketId === socket.id;
+        const player = isWhite ? room.playerWhite : room.playerBlack;
+        if (player.isBot) {
+            // Ya debería estar manejado, pero si llega aquí, ignorar
+            console.log(`🤖 Bot intentó aceptar tablas directamente, ignorado`);
+            return;
+        }
         roomManager.clearRoomTimers(room);
         room.isProcessingEnd = true;
         room.gameEnded = true;
@@ -437,12 +521,46 @@ const registerGameHandlers = (io, socket, roomManager, botService) => {
             whiteEloChange: eloResult.whiteEloChange,
             blackEloChange: eloResult.blackEloChange,
             players: [
-                { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
-                { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+                {
+                    nick: eloResult.whiteNick,
+                    newElo: eloResult.whiteNewElo,
+                    eloChange: eloResult.whiteEloChange,
+                },
+                {
+                    nick: eloResult.blackNick,
+                    newElo: eloResult.blackNewElo,
+                    eloChange: eloResult.blackEloChange,
+                },
             ],
         });
         roomManager.removeRoom(roomId);
     });
+    // Función auxiliar para procesar tablas (usada por bots)
+    async function processDraw(io, room, roomManager, reason) {
+        roomManager.clearRoomTimers(room);
+        room.isProcessingEnd = true;
+        room.gameEnded = true;
+        const eloResult = await eloService_1.EloService.processMatchEnd({
+            roomId: room.roomId,
+            whiteSocketId: room.playerWhite.socketId,
+            blackSocketId: room.playerBlack.socketId,
+            whiteNick: room.playerWhite.nick,
+            blackNick: room.playerBlack.nick,
+            result: "draw",
+            reason: reason,
+        });
+        io.to(room.roomId).emit("game_over", {
+            reason: "draw",
+            message: "Tablas por acuerdo con el bot.",
+            whiteEloChange: eloResult.whiteEloChange,
+            blackEloChange: eloResult.blackEloChange,
+            players: [
+                { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
+                { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+            ],
+        });
+        roomManager.removeRoom(room.roomId);
+    }
     // --- ⏱️ ABORTAR MANUAL ---
     socket.on("abort_game", ({ roomId }) => {
         const room = roomManager.getRoom(roomId);
@@ -456,8 +574,16 @@ const registerGameHandlers = (io, socket, roomManager, botService) => {
                 whiteEloChange: 0,
                 blackEloChange: 0,
                 players: [
-                    { nick: room.playerWhite.nick, newElo: room.playerWhite.elo, eloChange: 0 },
-                    { nick: room.playerBlack.nick, newElo: room.playerBlack.elo, eloChange: 0 }
+                    {
+                        nick: room.playerWhite.nick,
+                        newElo: room.playerWhite.elo,
+                        eloChange: 0,
+                    },
+                    {
+                        nick: room.playerBlack.nick,
+                        newElo: room.playerBlack.elo,
+                        eloChange: 0,
+                    },
                 ],
             });
             roomManager.removeRoom(roomId);

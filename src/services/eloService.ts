@@ -17,7 +17,7 @@ interface MatchResultInput {
 // ✅ Constantes de configuración
 const ELO_CONFIG = {
   K_FACTOR: 32, // Factor de desarrollo estándar
-  MIN_ELO: 100, // Elo mínimo posible
+  MIN_ELO: 1200, // Elo mínimo posible
   DEFAULT_ELO: 1200, // Elo inicial por defecto
   COURTESY_BONUS: 1, // Bono por cortesía en abortos
   ELO_ABORT_PENALTY: 0, // Penalización en abortos

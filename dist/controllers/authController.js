@@ -13,14 +13,18 @@ const UserStats_1 = require("../entities/UserStats");
 const express_validator_1 = require("express-validator");
 const sanitizeUtil_1 = require("../utils/sanitizeUtil");
 const nodeMailer_1 = require("../config/nodeMailer");
+const botConfig_1 = require("../config/botConfig");
 const userRepository = dataSource_1.AppDataSource.getRepository(User_1.User);
 // ✅ Constantes de configuración
 const AUTH_CONFIG = {
     SALT_ROUNDS: 10,
     TOKEN_EXPIRY: "7d",
     DEFAULT_ELO: 1200,
-    ELO_CHANGE_WIN: 16, // Cambio estándar por victoria/derrota
-    MIN_ELO: 100,
+    ELO_CHANGE_WIN: 16,
+    MIN_ELO: 1200, // ✅ Cambiado de 100 a 1200
+    MIN_NICK_LENGTH: 3,
+    MAX_NICK_LENGTH: 15,
+    NICK_REGEX: /^[A-Za-z0-9_]+$/, // Solo letras, números y guión bajo
 };
 /**
  * 📝 Registrar un nuevo usuario
@@ -38,6 +42,28 @@ const register = async (req, res) => {
         const { nick, email, password, initialElo } = req.body;
         const normalizedNick = nick.trim();
         const normalizedEmail = email.trim().toLowerCase();
+        // ✅ Validación de longitud y caracteres del nick
+        if (normalizedNick.length < AUTH_CONFIG.MIN_NICK_LENGTH ||
+            normalizedNick.length > AUTH_CONFIG.MAX_NICK_LENGTH) {
+            res.status(400).json({
+                message: `El nick debe tener entre ${AUTH_CONFIG.MIN_NICK_LENGTH} y ${AUTH_CONFIG.MAX_NICK_LENGTH} caracteres.`,
+            });
+            return;
+        }
+        if (!AUTH_CONFIG.NICK_REGEX.test(normalizedNick)) {
+            res.status(400).json({
+                message: "El nick solo puede contener letras, números y guión bajo (_).",
+            });
+            return;
+        }
+        // ✅ Validación de nombre reservado para bots
+        if (botConfig_1.BOT_NAMES_LOWERCASE.includes(normalizedNick.toLowerCase())) {
+            res.status(400).json({
+                message: `El nombre "${normalizedNick}" está reservado para bots. Por favor, elige otro.`,
+            });
+            return;
+        }
+        // Verificar si el nick o email ya existen
         const [existingNick, existingEmail] = await Promise.all([
             userRepository.findOne({ where: { nick: normalizedNick } }),
             userRepository.findOne({ where: { email: normalizedEmail } }),
@@ -59,7 +85,7 @@ const register = async (req, res) => {
         newUser.nick = normalizedNick;
         newUser.email = normalizedEmail;
         newUser.password = hashedPassword;
-        newUser.authProvider = "local"; // ✅ IMPORTANTE
+        newUser.authProvider = "local";
         newUser.lastLogin = new Date();
         // Crear estadísticas
         const newStats = new UserStats_1.UserStats();
@@ -106,14 +132,12 @@ const login = async (req, res) => {
             });
             return;
         }
-        // ✅ Verificar que el usuario tenga contraseña (no es social)
         if (user.authProvider !== "local") {
             res.status(401).json({
                 message: `Esta cuenta usa autenticación con ${user.authProvider}. Por favor, inicia sesión con ese método.`,
             });
             return;
         }
-        // ✅ Verificar contraseña (ahora puede ser null, pero en local siempre existe)
         if (!user.password) {
             res.status(401).json({
                 message: "Esta cuenta no tiene contraseña configurada. Usa el método de autenticación social.",
@@ -127,7 +151,6 @@ const login = async (req, res) => {
             });
             return;
         }
-        // ✅ Actualizar último login
         user.lastLogin = new Date();
         await userRepository.save(user);
         const jwtSecret = process.env.JWT_SECRET || "fallback_secret_key";
@@ -159,7 +182,7 @@ exports.login = login;
  */
 const getProfile = async (req, res) => {
     try {
-        const userId = req.userId || req.userId;
+        const userId = req.userId;
         if (!userId) {
             res.status(401).json({ message: "Usuario no autenticado." });
             return;
@@ -185,9 +208,7 @@ const getProfile = async (req, res) => {
     }
 };
 exports.getProfile = getProfile;
-/* 👤 Actualizar perfil de usuario autenticado
- * Maneja cambio de Nick, Email y Contraseña (solo para usuarios locales)
- */
+/* 👤 Actualizar perfil de usuario autenticado */
 const updateProfile = async (req, res) => {
     try {
         const userId = req.userId;
@@ -196,7 +217,6 @@ const updateProfile = async (req, res) => {
             res.status(401).json({ message: "Usuario no autenticado." });
             return;
         }
-        // 1. Buscar usuario con sus estadísticas
         const user = await userRepository.findOne({
             where: { id: userId },
             relations: ["stats"],
@@ -207,7 +227,7 @@ const updateProfile = async (req, res) => {
         }
         const isSocialUser = user.authProvider !== "local";
         const oldNick = user.nick;
-        // --- 2. Cambio de contraseña (solo para usuarios locales) ---
+        // Cambio de contraseña (solo para usuarios locales)
         if (newPassword || currentPassword) {
             if (isSocialUser) {
                 res.status(400).json({
@@ -232,7 +252,7 @@ const updateProfile = async (req, res) => {
                 user.password = await bcrypt_1.default.hash(newPassword, AUTH_CONFIG.SALT_ROUNDS);
             }
         }
-        // --- 3. Cambio de Email (solo para usuarios locales) ---
+        // Cambio de Email (solo para usuarios locales)
         if (email && email.trim().toLowerCase() !== user.email) {
             if (isSocialUser) {
                 res.status(400).json({
@@ -252,9 +272,30 @@ const updateProfile = async (req, res) => {
             }
             user.email = cleanEmail;
         }
-        // --- 4. Cambio de Nick (disponible para todos) ---
+        // Cambio de Nick (disponible para todos)
         if (nick && nick.trim() !== user.nick) {
             const cleanNick = nick.trim();
+            // ✅ Validar longitud y caracteres
+            if (cleanNick.length < AUTH_CONFIG.MIN_NICK_LENGTH ||
+                cleanNick.length > AUTH_CONFIG.MAX_NICK_LENGTH) {
+                res.status(400).json({
+                    message: `El nick debe tener entre ${AUTH_CONFIG.MIN_NICK_LENGTH} y ${AUTH_CONFIG.MAX_NICK_LENGTH} caracteres.`,
+                });
+                return;
+            }
+            if (!AUTH_CONFIG.NICK_REGEX.test(cleanNick)) {
+                res.status(400).json({
+                    message: "El nick solo puede contener letras, números y guión bajo (_).",
+                });
+                return;
+            }
+            // ✅ Validar nombre reservado para bots
+            if (botConfig_1.BOT_NAMES_LOWERCASE.includes(cleanNick.toLowerCase())) {
+                res.status(400).json({
+                    message: `El nombre "${cleanNick}" está reservado para bots. Por favor, elige otro.`,
+                });
+                return;
+            }
             const existingNick = await userRepository.findOne({
                 where: { nick: cleanNick },
             });
@@ -266,11 +307,9 @@ const updateProfile = async (req, res) => {
             }
             user.nick = cleanNick;
         }
-        // Actualizar fecha de interacción
         user.lastLogin = new Date();
-        // --- 5. Guardar cambios del usuario ---
         await userRepository.save(user);
-        // --- 6. Si cambió el nick, actualizar historial de partidas (GameHistory) ---
+        // Si cambió el nick, actualizar historial de partidas
         if (nick && oldNick !== user.nick) {
             const historyRepository = dataSource_1.AppDataSource.getRepository("GameHistory");
             await historyRepository
@@ -286,7 +325,6 @@ const updateProfile = async (req, res) => {
                 .where("blackNick = :oldNick", { oldNick })
                 .execute();
         }
-        // --- 7. Generar nuevo JWT actualizado ---
         const jwtSecret = process.env.JWT_SECRET || "fallback_secret_key";
         const token = jsonwebtoken_1.default.sign({
             userId: user.id,
@@ -300,7 +338,7 @@ const updateProfile = async (req, res) => {
             status: "success",
             message: "Perfil actualizado correctamente.",
             token,
-            user: (0, sanitizeUtil_1.sanitizeUser)(user), // Asumiendo que tienes esta función helper
+            user: (0, sanitizeUtil_1.sanitizeUser)(user),
         });
     }
     catch (error) {
@@ -311,9 +349,7 @@ const updateProfile = async (req, res) => {
     }
 };
 exports.updateProfile = updateProfile;
-/* 🔑 1. Solicitar restablecimiento de contraseña
- * Genera token temporal y envía el correo con el enlace
- */
+/* 🔑 1. Solicitar restablecimiento de contraseña */
 const forgotPassword = async (req, res) => {
     try {
         const { email } = req.body;
@@ -323,7 +359,6 @@ const forgotPassword = async (req, res) => {
         }
         const cleanEmail = email.trim().toLowerCase();
         const user = await userRepository.findOne({ where: { email: cleanEmail } });
-        // Por seguridad (OWASP), no revelamos si el correo existe o no en la BD
         if (!user) {
             res.json({
                 status: "success",
@@ -331,27 +366,22 @@ const forgotPassword = async (req, res) => {
             });
             return;
         }
-        // Validar que no sea un usuario de OAuth (Google, GitHub, Lichess)
         if (user.authProvider !== "local") {
             res.status(400).json({
                 message: `Esta cuenta se registró mediante ${user.authProvider}. Inicia sesión con dicho proveedor.`,
             });
             return;
         }
-        // Generar token único (32 bytes aleatorios)
         const resetToken = crypto_1.default.randomBytes(32).toString("hex");
-        // Guardar el hash del token y su tiempo de expiración (15 minutos)
         const tokenHash = crypto_1.default
             .createHash("sha256")
             .update(resetToken)
             .digest("hex");
         user.resetPasswordToken = tokenHash;
-        user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000); // +15 mins
+        user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000);
         await userRepository.save(user);
-        // Enlace que irá al frontend
         const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
         const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}&id=${user.id}`;
-        // Enviar correo electrónico
         await nodeMailer_1.transporter.sendMail({
             from: `"Ajedrez App" <${process.env.EMAIL_USER}>`,
             to: user.email,
@@ -378,9 +408,7 @@ const forgotPassword = async (req, res) => {
     }
 };
 exports.forgotPassword = forgotPassword;
-/* 🔒 2. Validar token y cambiar contraseña
- * Procesa la nueva contraseña desde el formulario del frontend
- */
+/* 🔒 2. Validar token y cambiar contraseña */
 const resetPassword = async (req, res) => {
     try {
         const { userId, token, newPassword } = req.body;
@@ -388,7 +416,6 @@ const resetPassword = async (req, res) => {
             res.status(400).json({ message: "Todos los campos son requeridos." });
             return;
         }
-        // Hashear el token entrante para compararlo con el almacenado en BD
         const tokenHash = crypto_1.default
             .createHash("sha256")
             .update(token)
@@ -402,7 +429,6 @@ const resetPassword = async (req, res) => {
             });
             return;
         }
-        // Verificar si el token ya expiró
         if (!user.resetPasswordExpires ||
             user.resetPasswordExpires.getTime() < Date.now()) {
             res.status(400).json({
@@ -410,7 +436,6 @@ const resetPassword = async (req, res) => {
             });
             return;
         }
-        // Hashear la nueva contraseña y limpiar tokens
         user.password = await bcrypt_1.default.hash(newPassword, AUTH_CONFIG.SALT_ROUNDS);
         user.resetPasswordToken = null;
         user.resetPasswordExpires = null;
@@ -433,7 +458,7 @@ exports.resetPassword = resetPassword;
  */
 const updateElo = async (req, res) => {
     try {
-        const userId = req.userId || req.userId;
+        const userId = req.userId;
         const { newElo, result } = req.body;
         if (!userId) {
             res.status(401).json({ message: "Usuario no autenticado." });
@@ -447,9 +472,8 @@ const updateElo = async (req, res) => {
             res.status(404).json({ message: "Usuario no encontrado." });
             return;
         }
-        // ✅ Actualizar Elo
-        user.stats.elo = Math.max(100, newElo);
-        // ✅ Actualizar estadísticas según resultado
+        // ✅ Aplicar piso de 1200
+        user.stats.elo = Math.max(AUTH_CONFIG.MIN_ELO, newElo);
         if (result === "win")
             user.stats.wins += 1;
         else if (result === "loss")
@@ -475,14 +499,15 @@ exports.updateElo = updateElo;
  * 📊 Función auxiliar para calcular estadísticas iniciales
  */
 function calculateInitialStats(incomingElo) {
-    if (incomingElo > AUTH_CONFIG.DEFAULT_ELO) {
+    const clampedElo = Math.max(AUTH_CONFIG.MIN_ELO, incomingElo);
+    if (clampedElo > AUTH_CONFIG.DEFAULT_ELO) {
         return {
-            finalElo: incomingElo,
+            finalElo: clampedElo,
             initialWins: 1,
             initialLosses: 0,
         };
     }
-    if (incomingElo < AUTH_CONFIG.DEFAULT_ELO) {
+    if (clampedElo < AUTH_CONFIG.DEFAULT_ELO) {
         return {
             finalElo: AUTH_CONFIG.DEFAULT_ELO,
             initialWins: 0,
