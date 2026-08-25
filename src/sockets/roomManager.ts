@@ -138,6 +138,7 @@ export class RoomManager {
       nick: oldRoom.playerBlack.nick,
       color: "w",
       isBot: oldRoom.playerBlack.isBot,
+      elo: oldRoom.playerBlack.elo,
     };
 
     const nextPlayerBlack: Player = {
@@ -145,6 +146,7 @@ export class RoomManager {
       nick: oldRoom.playerWhite.nick,
       color: "b",
       isBot: oldRoom.playerWhite.isBot,
+      elo: oldRoom.playerWhite.elo,
     };
 
     const newRoomId = `room_rematch_${Date.now()}`;
