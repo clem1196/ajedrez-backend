@@ -223,7 +223,7 @@ export abstract class BotBase {
           },
         ],
       });
-       this.lastGameResult = "draw";
+      this.lastGameResult = "draw";
       // Eliminar el bot de la sala (si existe)
       const bot = this.activeBots.get(
         room.playerWhite?.isBot
@@ -308,7 +308,7 @@ export abstract class BotBase {
     const fen = room.chessInstance.fen();
     const evaluation = getEvaluation(fen);
     // Si está perdiendo por más de 500 centipawns, se rinde
-    if (await evaluation < -500) {
+    if ((await evaluation) < -500) {
       // Además, verificar que no haya posibilidades de jaque mate
       // (esto ya está contemplado por la evaluación)
       return true;
@@ -459,9 +459,9 @@ export abstract class BotBase {
     const evaluation = getEvaluation(fen); // Implementar en stockfishHelper
     // Si el bot está perdiendo por más de 200 centipawns, acepta tablas
     // También si hay poca diferencia de material y la posición es repetitiva
-    if (await evaluation < -200) return true;
+    if ((await evaluation) < -200) return true;
     // Si el bot está ganando, rechaza
-    if (await evaluation > 200) return false;
+    if ((await evaluation) > 200) return false;
     // Si está igualada, acepta con probabilidad según dificultad
     const drawAcceptanceProb = this.config.drawAcceptanceProb || 0.3;
     return Math.random() < drawAcceptanceProb;
@@ -480,91 +480,94 @@ export abstract class BotBase {
    * @param room - Sala actual
    * @returns true si acepta, false si rechaza
    */
- /**
- * 🤖 Decide si el bot acepta una oferta de tablas
- * ✅ Ahora es async y usa getEvaluation con fallback
- */
-public async shouldAcceptDraw(room: any): Promise<boolean> {
-  // Si la partida ya terminó, no aceptar
-  if (room.gameEnded || room.isProcessingEnd) return false;
+  /**
+   * 🤖 Decide si el bot acepta una oferta de tablas
+   * ✅ Ahora es async y usa getEvaluation con fallback
+   */
+  public async shouldAcceptDraw(room: any): Promise<boolean> {
+    // Si la partida ya terminó, no aceptar
+    if (room.gameEnded || room.isProcessingEnd) return false;
 
-  const chess = room.chessInstance;
+    const chess = room.chessInstance;
 
-  // 1. Evaluación rápida sin Stockfish (material)
-  const board = chess.board();
-  let whiteMaterial = 0;
-  let blackMaterial = 0;
-  const pieceValues: Record<string, number> = {
-    p: 1,
-    n: 3,
-    b: 3,
-    r: 5,
-    q: 9,
-    k: 100,
-  };
+    // 1. Evaluación rápida sin Stockfish (material)
+    const board = chess.board();
+    let whiteMaterial = 0;
+    let blackMaterial = 0;
+    const pieceValues: Record<string, number> = {
+      p: 1,
+      n: 3,
+      b: 3,
+      r: 5,
+      q: 9,
+      k: 100,
+    };
 
-  for (const row of board) {
-    for (const square of row) {
-      if (square) {
-        const color = square.color;
-        const type = square.type;
-        const value = pieceValues[type] || 0;
-        if (color === "w") whiteMaterial += value;
-        else blackMaterial += value;
+    for (const row of board) {
+      for (const square of row) {
+        if (square) {
+          const color = square.color;
+          const type = square.type;
+          const value = pieceValues[type] || 0;
+          if (color === "w") whiteMaterial += value;
+          else blackMaterial += value;
+        }
       }
     }
-  }
 
-  const isBotWhite = this.activeBots.has(room.playerWhite.socketId);
-  const botMaterial = isBotWhite ? whiteMaterial : blackMaterial;
-  const humanMaterial = isBotWhite ? blackMaterial : whiteMaterial;
+    const isBotWhite = this.activeBots.has(room.playerWhite.socketId);
+    const botMaterial = isBotWhite ? whiteMaterial : blackMaterial;
+    const humanMaterial = isBotWhite ? blackMaterial : whiteMaterial;
 
-  // Si el bot tiene mucha desventaja material (≥3 puntos), acepta tablas
-  if (botMaterial < humanMaterial - 3) {
-    console.log(`🤖 Bot acepta tablas (desventaja material)`);
-    return true;
-  }
-
-  // Si el bot tiene ventaja clara (≥5 puntos), rechaza
-  if (botMaterial > humanMaterial + 5) {
-    console.log(`🤖 Bot rechaza tablas (ventaja clara)`);
-    return false;
-  }
-
-  // 2. Evaluación con Stockfish (solo si la partida está equilibrada o dudosa)
-  try {
-    const fen = chess.fen();
-    const evalScore = await getEvaluation(fen); // Ahora siempre retorna un número
-
-    // evalScore > 0 = ventaja blancas, < 0 = ventaja negras
-    // Si el bot está perdiendo (evalScore en su contra), acepta tablas
-    const botAdvantage = isBotWhite ? evalScore : -evalScore;
-
-    // Si el bot está perdiendo por más de 0.5 pawns, acepta tablas
-    if (botAdvantage < -0.5) {
-      console.log(`🤖 Bot acepta tablas (eval: ${botAdvantage.toFixed(2)})`);
+    // Si el bot tiene mucha desventaja material (≥3 puntos), acepta tablas
+    if (botMaterial < humanMaterial - 3) {
+      console.log(`🤖 Bot acepta tablas (desventaja material)`);
       return true;
     }
 
-    // Si el bot está ganando por más de 1 pawn, rechaza
-    if (botAdvantage > 1.0) {
-      console.log(`🤖 Bot rechaza tablas (eval: ${botAdvantage.toFixed(2)})`);
+    // Si el bot tiene ventaja clara (≥5 puntos), rechaza
+    if (botMaterial > humanMaterial + 5) {
+      console.log(`🤖 Bot rechaza tablas (ventaja clara)`);
       return false;
     }
 
-    // Si está muy equilibrado, decisión aleatoria (30% aceptar)
-    const random = Math.random();
-    const accept = random < 0.3;
-    console.log(
-      `🤖 Bot decide ${accept ? "aceptar" : "rechazar"} tablas (aleatorio, eval: ${botAdvantage.toFixed(2)})`,
-    );
-    return accept;
-  } catch (error) {
-    console.error("❌ Error en evaluación de tablas, usando fallback:", error);
-    // Fallback: si no se pudo evaluar, rechazar tablas (para no regalar puntos)
-    return false;
+    // 2. Evaluación con Stockfish (solo si la partida está equilibrada o dudosa)
+    try {
+      const fen = chess.fen();
+      const evalScore = await getEvaluation(fen); // Ahora siempre retorna un número
+
+      // evalScore > 0 = ventaja blancas, < 0 = ventaja negras
+      // Si el bot está perdiendo (evalScore en su contra), acepta tablas
+      const botAdvantage = isBotWhite ? evalScore : -evalScore;
+
+      // Si el bot está perdiendo por más de 0.5 pawns, acepta tablas
+      if (botAdvantage < -0.5) {
+        console.log(`🤖 Bot acepta tablas (eval: ${botAdvantage.toFixed(2)})`);
+        return true;
+      }
+
+      // Si el bot está ganando por más de 1 pawn, rechaza
+      if (botAdvantage > 1.0) {
+        console.log(`🤖 Bot rechaza tablas (eval: ${botAdvantage.toFixed(2)})`);
+        return false;
+      }
+
+      // Si está muy equilibrado, decisión aleatoria (30% aceptar)
+      const random = Math.random();
+      const accept = random < 0.3;
+      console.log(
+        `🤖 Bot decide ${accept ? "aceptar" : "rechazar"} tablas (aleatorio, eval: ${botAdvantage.toFixed(2)})`,
+      );
+      return accept;
+    } catch (error) {
+      console.error(
+        "❌ Error en evaluación de tablas, usando fallback:",
+        error,
+      );
+      // Fallback: si no se pudo evaluar, rechazar tablas (para no regalar puntos)
+      return false;
+    }
   }
-}
 
   /**
    * 🤖 Obtener la instancia del bot (para decisiones)
@@ -601,42 +604,58 @@ public async shouldAcceptDraw(room: any): Promise<boolean> {
    */
   public maybeOfferDraw(room: any): void {
     if (room.gameEnded || room.isProcessingEnd) return;
-    if (room.drawOffered) return; // Ya hay oferta pendiente
+    if (room.drawOffered) return; // ✅ Ya hay oferta pendiente
 
-    const chess = room.chessInstance;
-    // Si la partida lleva más de 30 movimientos y está equilibrada
-    if (room.moveCount > 30) {
-      const board = chess.board();
-      let whiteMaterial = 0;
-      let blackMaterial = 0;
-      // ... calcular material igual que antes
-      // Si material total < 25 y diferencia < 2, ofrecer tablas
-      if (
-        whiteMaterial + blackMaterial < 25 &&
-        Math.abs(whiteMaterial - blackMaterial) < 3
-      ) {
-        console.log(`🤖 Bot ofrece tablas (partida equilibrada)`);
-        const botSocketId = this.activeBots.values().next().value?.socketId;
-        if (botSocketId) {
-          // Emitir oferta de tablas desde el bot
-          const botPlayer =
-            room.playerWhite.socketId === botSocketId
-              ? room.playerWhite
-              : room.playerBlack;
-          const opponentSocketId =
-            botPlayer === room.playerWhite
-              ? room.playerBlack.socketId
-              : room.playerWhite.socketId;
-          this.io.to(opponentSocketId).emit("draw_offered");
-          room.drawOffered = true;
-          // Temporizador para cancelar oferta si no responde en 10 segundos
-          setTimeout(() => {
-            if (room && room.drawOffered) {
-              room.drawOffered = false;
-              this.io.to(room.roomId).emit("draw_offer_canceled");
-            }
-          }, 10000);
+    // Solo ofrecer si la partida lleva más de 20 movimientos
+    if (room.moveCount < 20) return;
+
+    // Calcular material (como antes)
+    const board = room.chessInstance.board();
+    let whiteMaterial = 0;
+    let blackMaterial = 0;
+    const pieceValues: Record<string, number> = {
+      p: 1,
+      n: 3,
+      b: 3,
+      r: 5,
+      q: 9,
+      k: 100,
+    };
+    for (const row of board) {
+      for (const square of row) {
+        if (square) {
+          const value = pieceValues[square.type] || 0;
+          if (square.color === "w") whiteMaterial += value;
+          else blackMaterial += value;
         }
+      }
+    }
+
+    // Si material total bajo y diferencia pequeña
+    if (
+      whiteMaterial + blackMaterial < 25 &&
+      Math.abs(whiteMaterial - blackMaterial) < 3
+    ) {
+      console.log(`🤖 Bot ofrece tablas (partida equilibrada)`);
+      const botSocketId = this.activeBots.values().next().value?.socketId;
+      if (botSocketId) {
+        const botPlayer =
+          room.playerWhite.socketId === botSocketId
+            ? room.playerWhite
+            : room.playerBlack;
+        const opponentSocketId =
+          botPlayer === room.playerWhite
+            ? room.playerBlack.socketId
+            : room.playerWhite.socketId;
+        this.io.to(opponentSocketId).emit("draw_offered");
+        room.drawOffered = true;
+        // Cancelar oferta después de 10 segundos si no hay respuesta
+        setTimeout(() => {
+          if (room && room.drawOffered) {
+            room.drawOffered = false;
+            this.io.to(room.roomId).emit("draw_offer_canceled");
+          }
+        }, 10000);
       }
     }
   }

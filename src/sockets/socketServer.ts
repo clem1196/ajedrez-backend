@@ -270,7 +270,7 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
           opponent.socketId,
         );
         if (botInstance) {
-          const shouldAccept = botInstance.shouldAcceptRematch(roomId);
+          const shouldAccept = botInstance.shouldAcceptRematch(room);
           if (shouldAccept) {
             console.log(`🤖 Bot ${opponent.nick} ACEPTA revancha`);
             // Simular que el bot acepta la revancha
@@ -300,6 +300,7 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
             io.to(opponent.socketId).emit("rematch_declined");
           }
         } else {
+          console.log(`❌ No se encontró instancia del bot ${opponent.nick}`);
           // Fallback: rechazar si no se encuentra instancia
           socket.emit("rematch_declined");
         }
