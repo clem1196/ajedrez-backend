@@ -568,7 +568,7 @@ export const registerGameHandlers = (
   socket.on("offer_draw", async ({ roomId }: { roomId: string }) => {
     const room = roomManager.getRoom(roomId);
     if (!room || room.gameEnded || room.isProcessingEnd) return;
-       const isWhite = room.playerWhite.socketId === socket.id;
+    const isWhite = room.playerWhite.socketId === socket.id;
     const opponent = isWhite ? room.playerBlack : room.playerWhite;
 
     // Si el oponente es un bot, tomar decisión automática
@@ -577,12 +577,13 @@ export const registerGameHandlers = (
       // Obtener la instancia del bot desde botService
       const botInstance = botService.getBotInstanceForPlayer(opponent.socketId);
       if (botInstance) {
+        await new Promise(resolve => setTimeout(resolve, 500));
         const shouldAccept = botInstance.evaluateDrawOffer(roomId);
         if (await shouldAccept) {
           // ✅ Bot acepta tablas
           console.log(`🤖 Bot ${opponent.nick} ACEPTA tablas`);
           io.to(roomId).emit("draw_accepted");
-             // Emitir evento de aceptación de tablas (similar a accept_draw)
+          // Emitir evento de aceptación de tablas (similar a accept_draw)
           socket.emit("draw_accepted"); // notificar al que ofreció
           // Procesar final de partida como tablas
           processDraw(io, room, roomManager, "bot_accept");
@@ -592,7 +593,7 @@ export const registerGameHandlers = (
           socket.emit("draw_rejected");
           io.to(opponent.socketId).emit("draw_rejected");
         }
-      }else {
+      } else {
         // Fallback: rechazar si no se encuentra instancia
         socket.emit("draw_rejected");
       }
@@ -658,8 +659,13 @@ export const registerGameHandlers = (
 
     roomManager.removeRoom(roomId);
   });
-// Función auxiliar para procesar tablas (usada por bots)
-  async function processDraw(io: Server, room: any, roomManager: RoomManager, reason: string) {
+  // Función auxiliar para procesar tablas (usada por bots)
+  async function processDraw(
+    io: Server,
+    room: any,
+    roomManager: RoomManager,
+    reason: string,
+  ) {
     roomManager.clearRoomTimers(room);
     room.isProcessingEnd = true;
     room.gameEnded = true;
@@ -680,8 +686,16 @@ export const registerGameHandlers = (
       whiteEloChange: eloResult.whiteEloChange,
       blackEloChange: eloResult.blackEloChange,
       players: [
-        { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
-        { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+        {
+          nick: eloResult.whiteNick,
+          newElo: eloResult.whiteNewElo,
+          eloChange: eloResult.whiteEloChange,
+        },
+        {
+          nick: eloResult.blackNick,
+          newElo: eloResult.blackNewElo,
+          eloChange: eloResult.blackEloChange,
+        },
       ],
     });
 
