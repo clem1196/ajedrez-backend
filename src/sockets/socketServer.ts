@@ -270,7 +270,7 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
           opponent.socketId,
         );
         if (botInstance) {
-          const shouldAccept = botInstance.shouldAcceptRematch(room);
+          const shouldAccept = botInstance.shouldAcceptRematch(roomId);
           if (shouldAccept) {
             console.log(`🤖 Bot ${opponent.nick} ACEPTA revancha`);
             // Simular que el bot acepta la revancha
