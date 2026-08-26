@@ -127,12 +127,14 @@ export class RoomManager {
     return newRoom;
   }
 
-  public createRematchRoom(oldRoomId: string): GameRoom | null {
+  public createRematchRoom(oldRoomId: string, botService?: any): GameRoom | null {
     const oldRoom = this.activeRooms.get(oldRoomId);
     if (!oldRoom) return null;
 
-    this.clearRoomTimers(oldRoom);
+    // 1. Limpiar completamente la sala anterior (incluyendo bots si aplican)
+    this.removeRoom(oldRoomId, botService);
 
+    // 2. Intercambiar colores de los jugadores
     const nextPlayerWhite: Player = {
       socketId: oldRoom.playerBlack.socketId,
       nick: oldRoom.playerBlack.nick,
@@ -165,16 +167,12 @@ export class RoomManager {
       isProcessingEnd: false,
       afkCountdownStarted: false,
       lastMoveTimestamp: Date.now(),
-
-      // ✅ Inicializar nuevas propiedades
       isPaused: false,
       playerDisconnected: undefined,
       _reconnectionTimer: undefined,
     };
 
     this.activeRooms.set(newRoomId, newRoom);
-    this.activeRooms.delete(oldRoomId);
-
     return newRoom;
   }
 
@@ -182,48 +180,48 @@ export class RoomManager {
     return this.activeRooms.get(roomId);
   }
 
-  // ✅ (clearRoomTimers o removeRoom)
   public removeRoom(roomId: string, botService?: any): void {
     const room = this.activeRooms.get(roomId);
-    if (room) {
-      this.clearRoomTimers(room);
+    if (!room) return;
 
-      // ✅ Limpiar timers de bots si existen en esta sala
-      if (room.playerWhite?.isBot && botService) {
+    this.clearRoomTimers(room);
+
+    // Limpiar bots asociados a la sala
+    if (botService) {
+      if (room.playerWhite?.isBot) {
         botService.removeBot(roomId, room.playerWhite.socketId);
       }
-      if (room.playerBlack?.isBot && botService) {
+      if (room.playerBlack?.isBot) {
         botService.removeBot(roomId, room.playerBlack.socketId);
       }
     }
+
     this.activeRooms.delete(roomId);
   }
 
   public clearRoomTimers(room: GameRoom): void {
-    if (room.timerInterval) {
-      clearInterval(room.timerInterval);
-      room.timerInterval = undefined;
-    }
-    if (room.initialMoveTimer) {
-      clearTimeout(room.initialMoveTimer);
-      room.initialMoveTimer = undefined;
-    }
-    if (room.turnTimer) {
-      clearTimeout(room.turnTimer);
-      room.turnTimer = undefined;
-    }
-    if (room.afkAutoWinTimer) {
-      clearTimeout(room.afkAutoWinTimer);
-      room.afkAutoWinTimer = undefined;
-    }
-    if (room.afkCountdownInterval) {
-      clearInterval(room.afkCountdownInterval);
-      room.afkCountdownInterval = undefined;
-    }
-    if (room._reconnectionTimer) {
-      clearTimeout(room._reconnectionTimer);
-      room._reconnectionTimer = undefined;
-    }
+    const timers: (NodeJS.Timeout | NodeJS.Timer | undefined)[] = [
+      room.timerInterval,
+      room.initialMoveTimer,
+      room.turnTimer,
+      room.afkAutoWinTimer,
+      room.afkCountdownInterval,
+      room._reconnectionTimer,
+    ];
+
+    timers.forEach((t) => {
+      if (t) {
+        clearInterval(t as any);
+        clearTimeout(t as NodeJS.Timeout);
+      }
+    });
+
+    room.timerInterval = undefined;
+    room.initialMoveTimer = undefined;
+    room.turnTimer = undefined;
+    room.afkAutoWinTimer = undefined;
+    room.afkCountdownInterval = undefined;
+    room._reconnectionTimer = undefined;
     room.afkCountdownStarted = false;
   }
 
@@ -232,9 +230,6 @@ export class RoomManager {
       const nuevaCola = queue.filter((p) => p.socketId !== socketId);
       this.guestQueues.set(minutes, nuevaCola);
     }
-    console.log(
-      `🧹 [RoomManager] Socket ${socketId} removido de todas las colas.`,
-    );
   }
 
   public getRoomByPlayerId(socketId: string): GameRoom | undefined {
@@ -341,7 +336,7 @@ export class RoomManager {
     );
     return newRoom;
   }
-  // ✅ NUEVO: Marcar que un jugador reconectó
+  // Marcar que un jugador reconectó
   public setPlayerReconnected(
     roomId: string,
     socketId: string,
