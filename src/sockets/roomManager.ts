@@ -15,7 +15,7 @@ interface Player {
   nick: string;
   color?: "w" | "b";
   isBot?: boolean;
-  elo?:number;
+  elo?: number;
 }
 
 export interface GameRoom {
@@ -182,22 +182,22 @@ export class RoomManager {
     return this.activeRooms.get(roomId);
   }
 
-// ✅ (clearRoomTimers o removeRoom)
-public removeRoom(roomId: string, botService?: any): void {
-  const room = this.activeRooms.get(roomId);
-  if (room) {
-    this.clearRoomTimers(room);
-    
-    // ✅ Limpiar timers de bots si existen en esta sala
-    if (room.playerWhite?.isBot && botService) {
-      botService.removeBot(roomId, room.playerWhite.socketId);
+  // ✅ (clearRoomTimers o removeRoom)
+  public removeRoom(roomId: string, botService?: any): void {
+    const room = this.activeRooms.get(roomId);
+    if (room) {
+      this.clearRoomTimers(room);
+
+      // ✅ Limpiar timers de bots si existen en esta sala
+      if (room.playerWhite?.isBot && botService) {
+        botService.removeBot(roomId, room.playerWhite.socketId);
+      }
+      if (room.playerBlack?.isBot && botService) {
+        botService.removeBot(roomId, room.playerBlack.socketId);
+      }
     }
-    if (room.playerBlack?.isBot && botService) {
-      botService.removeBot(roomId, room.playerBlack.socketId);
-    }
+    this.activeRooms.delete(roomId);
   }
-  this.activeRooms.delete(roomId);
-}
 
   public clearRoomTimers(room: GameRoom): void {
     if (room.timerInterval) {
@@ -289,7 +289,7 @@ public removeRoom(roomId: string, botService?: any): void {
     this.clearRoomTimers(room);
 
     return true;
-  }  
+  }
   public createRoomWithBot(
     humanSocketId: string,
     humanNick: string,
