@@ -314,7 +314,7 @@ export const initSocketServer = (server: HttpServer, app: Application) => {
       const opponentId = isWhite
         ? room.playerBlack.socketId
         : room.playerWhite.socketId;
-      io.to(opponentId).emit("rematch_requested");
+      io.to(room.roomId).emit("rematch_requested", { from: player.nick });
     });
 
     socket.on("cancel_rematch_proposal", ({ roomId }) => {
