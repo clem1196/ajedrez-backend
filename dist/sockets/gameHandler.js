@@ -456,6 +456,7 @@ const registerGameHandlers = (io, socket, roomManager, botService) => {
             // Obtener la instancia del bot desde botService
             const botInstance = botService.getBotInstanceForPlayer(opponent.socketId);
             if (botInstance) {
+                await new Promise(resolve => setTimeout(resolve, 500));
                 const shouldAccept = botInstance.evaluateDrawOffer(roomId);
                 if (await shouldAccept) {
                     // ✅ Bot acepta tablas
@@ -555,8 +556,16 @@ const registerGameHandlers = (io, socket, roomManager, botService) => {
             whiteEloChange: eloResult.whiteEloChange,
             blackEloChange: eloResult.blackEloChange,
             players: [
-                { nick: eloResult.whiteNick, newElo: eloResult.whiteNewElo, eloChange: eloResult.whiteEloChange },
-                { nick: eloResult.blackNick, newElo: eloResult.blackNewElo, eloChange: eloResult.blackEloChange }
+                {
+                    nick: eloResult.whiteNick,
+                    newElo: eloResult.whiteNewElo,
+                    eloChange: eloResult.whiteEloChange,
+                },
+                {
+                    nick: eloResult.blackNick,
+                    newElo: eloResult.blackNewElo,
+                    eloChange: eloResult.blackEloChange,
+                },
             ],
         });
         roomManager.removeRoom(room.roomId);
