@@ -16,6 +16,7 @@ export interface Bot {
   socketId: string;
   thinkingTimer?: NodeJS.Timeout;
   roomId?: string;
+  difficulty?: string;
 }
 
 /**
@@ -176,11 +177,12 @@ export abstract class BotBase {
           ? room.playerWhite.socketId
           : room.playerBlack.socketId,
       );
-      if (bot) {
+     /* if (bot) {
         this.removeBot(room.roomId, bot.id);
       }
 
       this.roomManager.removeRoom(room.roomId);
+      */
     } catch (err) {
       console.error("❌ Error en jaque mate:", err);
     }
@@ -230,11 +232,12 @@ export abstract class BotBase {
           ? room.playerWhite.socketId
           : room.playerBlack?.socketId,
       );
-      if (bot) {
+      /* if (bot) {
         this.removeBot(room.roomId, bot.id);
       }
 
       this.roomManager.removeRoom(room.roomId);
+       */
     } catch (err) {
       console.error("❌ Error en ahogado:", err);
     }

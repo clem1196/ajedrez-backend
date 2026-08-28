@@ -49,6 +49,7 @@ export interface GameRoom {
   };
   _reconnectionTimer?: NodeJS.Timeout;
   drawOffered?: boolean;
+  cleanupTimeout?: NodeJS.Timeout;
 }
 
 export class RoomManager {
@@ -127,54 +128,54 @@ export class RoomManager {
     return newRoom;
   }
 
-  public createRematchRoom(oldRoomId: string, botService?: any): GameRoom | null {
-    const oldRoom = this.activeRooms.get(oldRoomId);
-    if (!oldRoom) return null;
+  public createRematchRoom(oldRoomId: string): GameRoom | null {
+  const oldRoom = this.activeRooms.get(oldRoomId);
+  if (!oldRoom) return null;
 
-    // 1. Limpiar completamente la sala anterior (incluyendo bots si aplican)
-    this.removeRoom(oldRoomId, botService);
+  // 1. Limpiar los timers de la sala anterior (sin destruirla aún)
+  this.clearRoomTimers(oldRoom);
 
-    // 2. Intercambiar colores de los jugadores
-    const nextPlayerWhite: Player = {
-      socketId: oldRoom.playerBlack.socketId,
-      nick: oldRoom.playerBlack.nick,
-      color: "w",
-      isBot: oldRoom.playerBlack.isBot,
-      elo: oldRoom.playerBlack.elo,
-    };
+  // 2. Intercambiar colores de los jugadores
+  const nextPlayerWhite: Player = {
+    socketId: oldRoom.playerBlack.socketId,
+    nick: oldRoom.playerBlack.nick,
+    color: "w",
+    isBot: oldRoom.playerBlack.isBot,
+    elo: oldRoom.playerBlack.elo,
+  };
 
-    const nextPlayerBlack: Player = {
-      socketId: oldRoom.playerWhite.socketId,
-      nick: oldRoom.playerWhite.nick,
-      color: "b",
-      isBot: oldRoom.playerWhite.isBot,
-      elo: oldRoom.playerWhite.elo,
-    };
+  const nextPlayerBlack: Player = {
+    socketId: oldRoom.playerWhite.socketId,
+    nick: oldRoom.playerWhite.nick,
+    color: "b",
+    isBot: oldRoom.playerWhite.isBot,
+    elo: oldRoom.playerWhite.elo,
+  };
 
-    const newRoomId = `room_rematch_${Date.now()}`;
-    const newRoom: GameRoom = {
-      roomId: newRoomId,
-      playerWhite: nextPlayerWhite,
-      playerBlack: nextPlayerBlack,
-      chessInstance: new Chess(),
-      whiteTime: oldRoom.initialTimeAllocated,
-      blackTime: oldRoom.initialTimeAllocated,
-      initialTimeAllocated: oldRoom.initialTimeAllocated,
-      gameStarted: false,
-      gameEnded: false,
-      moveInactivitySeconds: 0,
-      moveCount: 0,
-      isProcessingEnd: false,
-      afkCountdownStarted: false,
-      lastMoveTimestamp: Date.now(),
-      isPaused: false,
-      playerDisconnected: undefined,
-      _reconnectionTimer: undefined,
-    };
+  const newRoomId = `room_rematch_${Date.now()}`;
+  const newRoom: GameRoom = {
+    roomId: newRoomId,
+    playerWhite: nextPlayerWhite,
+    playerBlack: nextPlayerBlack,
+    chessInstance: new Chess(),
+    whiteTime: oldRoom.initialTimeAllocated,
+    blackTime: oldRoom.initialTimeAllocated,
+    initialTimeAllocated: oldRoom.initialTimeAllocated,
+    gameStarted: true, // 🔴 Cambiado a true porque ya inicia la revancha
+    gameEnded: false,
+    moveInactivitySeconds: 0,
+    moveCount: 0,
+    isProcessingEnd: false,
+    afkCountdownStarted: false,
+    lastMoveTimestamp: Date.now(),
+    isPaused: false,
+    playerDisconnected: undefined,
+    _reconnectionTimer: undefined,
+  };
 
-    this.activeRooms.set(newRoomId, newRoom);
-    return newRoom;
-  }
+  this.activeRooms.set(newRoomId, newRoom);
+  return newRoom;
+}
 
   public getRoom(roomId: string): GameRoom | undefined {
     return this.activeRooms.get(roomId);
@@ -207,6 +208,7 @@ export class RoomManager {
       room.afkAutoWinTimer,
       room.afkCountdownInterval,
       room._reconnectionTimer,
+      room.cleanupTimeout,
     ];
 
     timers.forEach((t) => {
@@ -222,6 +224,7 @@ export class RoomManager {
     room.afkAutoWinTimer = undefined;
     room.afkCountdownInterval = undefined;
     room._reconnectionTimer = undefined;
+    room.cleanupTimeout = undefined;
     room.afkCountdownStarted = false;
   }
 

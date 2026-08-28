@@ -25,30 +25,21 @@ export class BotService {
     }
     return this.botInstances.get(difficulty)!;
   }
- /**
+  /**
    * 🤖 Obtener la instancia del bot que pertenece a un socketId específico
    * @param socketId - ID del socket del bot (puede ser el ID del bot o el socketId)
    * @returns La instancia de BotBase si existe, o undefined
    */
   public getBotInstanceForPlayer(socketId: string): BotBase | undefined {
-    // 1. Buscar directamente en las instancias activas
+    const bot = this.activeBots.get(socketId);
+    if (bot && bot.difficulty) {
+      return this.getBotInstance(bot.difficulty);
+    }
+
+    // Fallback: buscar en todas las instancias creadas
     for (const [, instance] of this.botInstances) {
       if (instance.activeBots.has(socketId)) {
         return instance;
-      }
-    }
-
-    // 2. Si no se encuentra, buscar en la lista de bots activos del servicio
-    const bot = this.activeBots.get(socketId);
-    if (bot) {
-      // Buscar la dificultad correspondiente al bot
-      // (asumiendo que el bot tiene la dificultad almacenada, o podemos inferirla)
-      // Como no la tenemos almacenada, podemos usar la que nos pasan al crearlo
-      // Pero mejor: recorrer las instancias y verificar si el bot está en su mapa
-      for (const [, instance] of this.botInstances) {
-        if (instance.activeBots.has(bot.id)) {
-          return instance;
-        }
       }
     }
 
@@ -95,6 +86,7 @@ export class BotService {
       socketId: botData.socketId,
       roomId: botData.roomId,
       thinkingTimer: undefined,
+      difficulty: botData.difficulty,
     };
 
     this.activeBots.set(bot.id, bot);
@@ -145,6 +137,7 @@ export class BotService {
 
     // Asignar el Elo dinamizado al bot
     bot.elo = botInstance.getRandomElo();
+    bot.difficulty = difficulty;
 
     if (botColor === "w") {
       room.playerWhite = {
@@ -216,12 +209,34 @@ export class BotService {
         continue;
       }
       const room = this.roomManager.getRoom(bot.roomId);
-      if (!room || room.gameEnded) {
+      if (!room) {
         this.removeBot(bot.roomId, botId);
       }
     }
   }
+  /**
+   * 🤝 Procesar solicitud de revancha contra un Bot
+   */
+  public handleBotRematchRequest(
+    roomId: string,
+    playerSocketId: string,
+  ): boolean {
+    const room = this.roomManager.getRoom(roomId);
+    if (!room) return false;
 
+    const botPlayer = room.playerWhite?.isBot
+      ? room.playerWhite
+      : room.playerBlack?.isBot
+        ? room.playerBlack
+        : null;
+    if (!botPlayer) return false;
+
+    const botInstance = this.getBotInstanceForPlayer(botPlayer.socketId);
+    if (!botInstance) return false;
+
+    // Evaluar si acepta la revancha usando la lógica dinámica del bot
+    return botInstance.shouldAcceptRematch(room);
+  }
   public getBotInfo(socketId: string): Bot | undefined {
     return this.activeBots.get(socketId);
   }
@@ -252,5 +267,26 @@ export class BotService {
   public getRandomEloByDifficulty(difficulty: string): number {
     const botInstance = this.getBotInstance(difficulty);
     return botInstance.getRandomElo(); // ✅ Tipado seguro y limpio
+  }
+  /**
+   * 🤖 Verifica si le toca mover a un Bot en la sala y programa/ejecuta su movimiento
+   */
+  public async handleBotTurnIfNeeded(io: any, room: any): Promise<void> {
+    if (!room || room.isGameOver) return;
+
+    // Determinar a quién le toca mover en la partida de ajedrez
+    const turn = room.chessInstance.turn(); // 'w' o 'b'
+    const activePlayer = turn === "w" ? room.playerWhite : room.playerBlack;
+
+    // Si el jugador activo es un bot, programar su movimiento
+    if (activePlayer && activePlayer.isBot) {
+      const botInstance = this.getBotInstanceForPlayer(activePlayer.socketId);
+      if (botInstance) {
+        console.log(
+          `🤖 Programando movimiento inicial/siguiente para el bot: ${activePlayer.nick}`,
+        );
+        await botInstance.makeMove(io, room);
+      }
+    }
   }
 }

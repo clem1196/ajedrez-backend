@@ -1,6 +1,6 @@
 // src/sockets/gameHandler.ts
 import { Server, Socket } from "socket.io";
-import { RoomManager, TIME_CONSTANTS } from "./roomManager";
+import { RoomManager, TIME_CONSTANTS, GameRoom } from "./roomManager";
 import { EloService } from "../services/eloService";
 import { BotService } from "../services/botService";
 
@@ -10,6 +10,44 @@ export const registerGameHandlers = (
   roomManager: RoomManager,
   botService: BotService,
 ) => {
+  // 🟢 Función auxiliar para procesar tablas en partidas con bot
+  const processDraw = async (room: GameRoom, reason: string) => {
+    roomManager.clearRoomTimers(room);
+    room.isProcessingEnd = true;
+    room.gameEnded = true;
+
+    const eloResult = await EloService.processMatchEnd({
+      roomId: room.roomId,
+      whiteSocketId: room.playerWhite.socketId,
+      blackSocketId: room.playerBlack.socketId,
+      whiteNick: room.playerWhite.nick,
+      blackNick: room.playerBlack.nick,
+      result: "draw",
+      reason: reason,
+    });
+
+    io.to(room.roomId).emit("game_over", {
+      reason: "draw",
+      message: "Tablas por acuerdo con el bot.",
+      whiteEloChange: eloResult.whiteEloChange,
+      blackEloChange: eloResult.blackEloChange,
+      players: [
+        {
+          nick: eloResult.whiteNick,
+          newElo: eloResult.whiteNewElo,
+          eloChange: eloResult.whiteEloChange,
+        },
+        {
+          nick: eloResult.blackNick,
+          newElo: eloResult.blackNewElo,
+          eloChange: eloResult.blackEloChange,
+        },
+      ],
+    });
+
+    roomManager.removeRoom(room.roomId);
+  };
+
   // --- 💬 CHAT ---
   socket.on(
     "send_message",
@@ -38,7 +76,6 @@ export const registerGameHandlers = (
   );
 
   // --- 🎯 MOVIMIENTOS ---
-
   socket.on(
     "make_move",
     async ({
@@ -134,20 +171,8 @@ export const registerGameHandlers = (
           const nextTurnColor = room.chessInstance.turn();
           const nextPlayer =
             nextTurnColor === "w" ? room.playerWhite : room.playerBlack;
-          if (nextPlayer && nextPlayer.isBot) {
-            setTimeout(() => {
-              const currentRoom = roomManager.getRoom(roomId);
-              if (
-                !currentRoom ||
-                currentRoom.gameEnded ||
-                currentRoom.isProcessingEnd
-              )
-                return;
-              if (currentRoom.chessInstance.turn() !== nextTurnColor) return;
-              botService.botMakeMove(roomId, nextTurnColor);
-            }, 1500);
-          }
-          // ✅ VERIFICAR JAQUE MATE (ANTES DE CUALQUIER OTRA COSA)
+
+          // ✅ VERIFICAR JAQUE MATE
           if (room.chessInstance.isCheckmate()) {
             console.log(
               `♟️ ¡JAQUE MATE! El jugador ${nextTurnColor === "w" ? "Blancas" : "Negras"} ha perdido.`,
@@ -219,7 +244,6 @@ export const registerGameHandlers = (
               }, 60 * 1000);
             }
 
-            // ✅ SALIR PARA NO CONTINUAR CON EL TIMER AFK
             return;
           }
 
@@ -315,7 +339,6 @@ export const registerGameHandlers = (
           );
 
           room.turnTimer = setTimeout(() => {
-            // Verificar que la partida siga activa
             const currentRoom = roomManager.getRoom(roomId);
             if (
               !currentRoom ||
@@ -325,7 +348,6 @@ export const registerGameHandlers = (
               return;
             }
 
-            // Verificar que el turno no haya cambiado
             const currentTurnNow = currentRoom.chessInstance.turn();
             if (currentTurnNow !== nextTurnColor) {
               console.log(
@@ -334,7 +356,6 @@ export const registerGameHandlers = (
               return;
             }
 
-            // ✅ Verificar que el countdown no se haya iniciado ya
             if (currentRoom.afkCountdownStarted) {
               console.log(`⏭️ Countdown AFK ya iniciado para sala ${roomId}`);
               return;
@@ -344,7 +365,6 @@ export const registerGameHandlers = (
               `🚨 Jugador ${nextTurnColor} AFK (70s sin mover) en sala ${roomId}`,
             );
 
-            // ✅ Marcar que el countdown ha comenzado
             currentRoom.afkCountdownStarted = true;
 
             const afkPlayerNick =
@@ -362,14 +382,12 @@ export const registerGameHandlers = (
                 ? currentRoom.playerWhite.socketId
                 : currentRoom.playerBlack.socketId;
 
-            // 1. Oponente (el que espera)
             io.to(waitingPlayerSocketId).emit("player_afk", {
               afkPlayerColor: nextTurnColor,
               message: `⏳ ${afkPlayerNick} está inactivo. Esperando...`,
               isYou: false,
             });
 
-            // 2. Jugador AFK (el que debe mover)
             io.to(afkPlayerSocketId).emit("player_afk", {
               afkPlayerColor: nextTurnColor,
               message: `⚠️ ¡Estás demorando! Tienes 20 segundos para mover o perderás.`,
@@ -378,7 +396,6 @@ export const registerGameHandlers = (
               countdownTime: 20,
             });
 
-            // ⏱️ INICIAR COUNTDOWN DE 20 SEGUNDOS
             let countdown = 20;
 
             if (currentRoom.afkCountdownInterval) {
@@ -502,11 +519,13 @@ export const registerGameHandlers = (
                     err,
                   );
                 } finally {
-                  roomManager.removeRoom(roomId);
+                  room.cleanupTimeout = setTimeout(() => {
+                    roomManager.removeRoom(roomId);
+                  }, 120000);
                 }
               }
             }, 1000);
-          }, TIME_CONSTANTS.AFK_SECONDS * 1000); // 70 segundos
+          }, TIME_CONSTANTS.AFK_SECONDS * 1000);
         } else {
           console.warn(`❌ Movimiento inválido: ${cleanFrom} -> ${cleanTo}`);
           socket.emit("illegal_move", { fen: room.chessInstance.fen() });
@@ -560,46 +579,45 @@ export const registerGameHandlers = (
         },
       ],
     });
-
-    roomManager.removeRoom(roomId);
+    room.cleanupTimeout = setTimeout(() => {
+      roomManager.removeRoom(roomId);
+    }, 120000);
+    //roomManager.removeRoom(roomId);
   });
 
   // --- 🤝 TABLAS ---
   socket.on("offer_draw", async ({ roomId }: { roomId: string }) => {
     const room = roomManager.getRoom(roomId);
     if (!room || room.gameEnded || room.isProcessingEnd) return;
+
     const isWhite = room.playerWhite.socketId === socket.id;
     const opponent = isWhite ? room.playerBlack : room.playerWhite;
 
-    // Si el oponente es un bot, tomar decisión automática
     if (opponent.isBot) {
       console.log(`🤖 El bot ${opponent.nick} recibe oferta de tablas`);
-      // Obtener la instancia del bot desde botService
       const botInstance = botService.getBotInstanceForPlayer(opponent.socketId);
+
       if (botInstance) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        const shouldAccept = botInstance.evaluateDrawOffer(roomId);
-        if (await shouldAccept) {
-          // ✅ Bot acepta tablas
+        // Breve pausa para simular pensamiento natural (500ms es perfecto)
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const shouldAccept = await botInstance.evaluateDrawOffer(roomId);
+
+        if (shouldAccept) {
           console.log(`🤖 Bot ${opponent.nick} ACEPTA tablas`);
-          io.to(roomId).emit("draw_accepted");
-          // Emitir evento de aceptación de tablas (similar a accept_draw)
-          socket.emit("draw_accepted"); // notificar al que ofreció
-          // Procesar final de partida como tablas
-          processDraw(io, room, roomManager, "bot_accept");
+          // Emitir SOLO UNA VEZ a la sala
+          await processDraw(room, "bot_accept");
         } else {
-          // ✅ Bot rechaza tablas
           console.log(`🤖 Bot ${opponent.nick} RECHAZA tablas`);
-          socket.emit("draw_rejected");
-          io.to(opponent.socketId).emit("draw_rejected");
+          // Notificar al cliente para cerrar el spinner/modal de espera
+          socket.emit("draw_declined");
         }
       } else {
-        // Fallback: rechazar si no se encuentra instancia
-        socket.emit("draw_rejected");
+        socket.emit("draw_declined");
       }
       return;
     }
-    // Si el oponente es humano, reenviar la oferta normalmente
+
+    // Flujo contra oponente humano
     socket.to(roomId).emit("draw_offered");
   });
 
@@ -616,14 +634,14 @@ export const registerGameHandlers = (
   socket.on("accept_draw", async ({ roomId }: { roomId: string }) => {
     const room = roomManager.getRoom(roomId);
     if (!room || room.isProcessingEnd) return;
-    // Si el que acepta es un bot, ya se manejó en offer_draw, pero por seguridad
+
     const isWhite = room.playerWhite.socketId === socket.id;
     const player = isWhite ? room.playerWhite : room.playerBlack;
     if (player.isBot) {
-      // Ya debería estar manejado, pero si llega aquí, ignorar
       console.log(`🤖 Bot intentó aceptar tablas directamente, ignorado`);
       return;
     }
+
     roomManager.clearRoomTimers(room);
     room.isProcessingEnd = true;
     room.gameEnded = true;
@@ -656,51 +674,11 @@ export const registerGameHandlers = (
         },
       ],
     });
-
-    roomManager.removeRoom(roomId);
+    room.cleanupTimeout = setTimeout(() => {
+      roomManager.removeRoom(roomId);
+    }, 120000); // 2 minutos
+    //roomManager.removeRoom(roomId);
   });
-  // Función auxiliar para procesar tablas (usada por bots)
-  async function processDraw(
-    io: Server,
-    room: any,
-    roomManager: RoomManager,
-    reason: string,
-  ) {
-    roomManager.clearRoomTimers(room);
-    room.isProcessingEnd = true;
-    room.gameEnded = true;
-
-    const eloResult = await EloService.processMatchEnd({
-      roomId: room.roomId,
-      whiteSocketId: room.playerWhite.socketId,
-      blackSocketId: room.playerBlack.socketId,
-      whiteNick: room.playerWhite.nick,
-      blackNick: room.playerBlack.nick,
-      result: "draw",
-      reason: reason,
-    });
-
-    io.to(room.roomId).emit("game_over", {
-      reason: "draw",
-      message: "Tablas por acuerdo con el bot.",
-      whiteEloChange: eloResult.whiteEloChange,
-      blackEloChange: eloResult.blackEloChange,
-      players: [
-        {
-          nick: eloResult.whiteNick,
-          newElo: eloResult.whiteNewElo,
-          eloChange: eloResult.whiteEloChange,
-        },
-        {
-          nick: eloResult.blackNick,
-          newElo: eloResult.blackNewElo,
-          eloChange: eloResult.blackEloChange,
-        },
-      ],
-    });
-
-    roomManager.removeRoom(room.roomId);
-  }
 
   // --- ⏱️ ABORTAR MANUAL ---
   socket.on("abort_game", ({ roomId }) => {
