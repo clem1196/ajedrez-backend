@@ -180,23 +180,34 @@ const initSocketServer = (server, app) => {
         });
         // --- 🔄 REVANCHAS ---
         socket.on("propose_rematch", async ({ roomId }) => {
+            // Obtenemos la sala (incluso si la partida ya terminó, no bloqueamos por isProcessingEnd)
             const room = roomManager.getRoom(roomId);
-            if (!room || room.isProcessingEnd)
+            if (!room) {
+                socket.emit("rematch_failed", {
+                    message: "La sala original ya no existe",
+                });
                 return;
+            }
             const isWhite = room.playerWhite.socketId === socket.id;
             const player = isWhite ? room.playerWhite : room.playerBlack;
             const opponent = isWhite ? room.playerBlack : room.playerWhite;
-            // ✅ Caso: oponente es bot
+            // ✅ Caso 1: El oponente es un bot
             if (opponent.isBot) {
                 const botInstance = botService.getBotInstanceForPlayer(opponent.socketId);
                 if (botInstance) {
-                    const shouldAccept = await botInstance.shouldAcceptRematch(room);
+                    const shouldAccept = botInstance.shouldAcceptRematch(room);
                     if (shouldAccept) {
-                        socket.emit("rematch_accepted");
+                        socket.emit("accept_rematch");
                         const newRoom = roomManager.createRematchRoom(roomId);
                         if (newRoom) {
+                            // 1. Abandonar canal de socket antiguo y unirse al nuevo
+                            socket.leave(roomId);
                             socket.join(newRoom.roomId);
+                            // 2. Destruir la sala antigua del manager para evitar fugas de memoria y timers huérfanos
+                            roomManager.removeRoom(roomId);
+                            // 3. Configurar sockets e iniciar bot
                             setupRoomSocketsAndStart(io, socket, newRoom);
+                            // 4. Emitir inicio a la nueva sala
                             io.to(newRoom.roomId).emit("game_started", {
                                 roomId: newRoom.roomId,
                                 white: {
@@ -215,6 +226,9 @@ const initSocketServer = (server, app) => {
                                 initialTime: newRoom.initialTimeAllocated,
                             });
                             startRoomTimer(io, newRoom);
+                            if (newRoom.playerWhite.isBot) {
+                                botService.handleBotTurnIfNeeded(io, newRoom);
+                            }
                         }
                         else {
                             socket.emit("rematch_failed", {
@@ -228,25 +242,36 @@ const initSocketServer = (server, app) => {
                 }
                 return;
             }
-            // ✅ Caso: oponente es humano
-            const opponentId = isWhite
-                ? room.playerBlack.socketId
-                : room.playerWhite.socketId;
-            io.to(opponentId).emit("rematch_requested");
+            // ✅ Caso 2: El oponente es un humano
+            const opponentSocket = io.sockets.sockets.get(opponent.socketId);
+            if (opponentSocket) {
+                // Enviar la notificación directamente al Socket del oponente y a la sala
+                opponentSocket.emit("rematch_requested", { from: player.nick, roomId });
+                socket.emit("rematch_sent", {
+                    message: "Propuesta de revancha enviada",
+                });
+            }
+            else {
+                socket.emit("rematch_failed", {
+                    message: "El oponente se ha desconectado",
+                });
+            }
         });
         socket.on("cancel_rematch_proposal", ({ roomId }) => {
             const room = roomManager.getRoom(roomId);
             if (room) {
-                const opponentId = room.playerWhite.socketId === socket.id
+                const isWhite = room.playerWhite.socketId === socket.id;
+                const opponentId = isWhite
                     ? room.playerBlack.socketId
                     : room.playerWhite.socketId;
                 io.to(opponentId).emit("rematch_declined");
             }
         });
-        socket.on("decline_rematch", ({ roomId }) => {
+        socket.on("rematch_declined", ({ roomId }) => {
             const room = roomManager.getRoom(roomId);
             if (room) {
-                const opponentId = room.playerWhite.socketId === socket.id
+                const isWhite = room.playerWhite.socketId === socket.id;
+                const opponentId = isWhite
                     ? room.playerBlack.socketId
                     : room.playerWhite.socketId;
                 io.to(opponentId).emit("rematch_declined");
@@ -254,42 +279,80 @@ const initSocketServer = (server, app) => {
         });
         socket.on("accept_rematch", ({ roomId }) => {
             const room = roomManager.getRoom(roomId);
-            if (!room)
+            if (!room) {
+                socket.emit("rematch_failed", {
+                    message: "La partida original expiró",
+                });
                 return;
+            }
             const isWhite = room.playerWhite.socketId === socket.id;
             const player = isWhite ? room.playerWhite : room.playerBlack;
             if (player.isBot)
                 return;
+            // 1. Crear la sala de revancha (invierte colores automáticamente)
             const newRoom = roomManager.createRematchRoom(roomId);
-            if (newRoom) {
-                const opponentSocket = io.sockets.sockets.get(newRoom.playerBlack.socketId);
-                const currentSocket = io.sockets.sockets.get(newRoom.playerWhite.socketId);
-                if (currentSocket && opponentSocket) {
-                    setupRoomSocketsAndStart(io, currentSocket, newRoom);
-                    io.to(newRoom.roomId).emit("game_started", {
-                        roomId: newRoom.roomId,
-                        white: {
-                            id: newRoom.playerWhite.socketId,
-                            nick: newRoom.playerWhite.nick,
-                            time: newRoom.whiteTime,
-                            isBot: newRoom.playerWhite.isBot || false,
-                        },
-                        black: {
-                            id: newRoom.playerBlack.socketId,
-                            nick: newRoom.playerBlack.nick,
-                            time: newRoom.blackTime,
-                            isBot: newRoom.playerBlack.isBot || false,
-                        },
-                        fen: newRoom.chessInstance.fen(),
-                        initialTime: newRoom.initialTimeAllocated,
-                    });
-                    startRoomTimer(io, newRoom);
-                }
-                else {
-                    roomManager.removeRoom(newRoom.roomId);
-                    console.error(`❌ Error: No se encontraron sockets para la revancha`);
+            if (!newRoom) {
+                socket.emit("rematch_failed", {
+                    message: "No se pudo crear la sala de revancha",
+                });
+                return;
+            }
+            // 2. Verificar conexiones según el tipo de jugador (Humano vs Bot)
+            const isWhiteBot = newRoom.playerWhite.isBot;
+            const isBlackBot = newRoom.playerBlack.isBot;
+            const socketWhite = isWhiteBot
+                ? null
+                : io.sockets.sockets.get(newRoom.playerWhite.socketId);
+            const socketBlack = isBlackBot
+                ? null
+                : io.sockets.sockets.get(newRoom.playerBlack.socketId);
+            // Validar que los humanos sigan conectados
+            if ((!isWhiteBot && !socketWhite) || (!isBlackBot && !socketBlack)) {
+                roomManager.removeRoom(newRoom.roomId);
+                roomManager.removeRoom(roomId);
+                console.error(`❌ Error: Socket de jugador humano no encontrado al aceptar revancha`);
+                socket.emit("rematch_failed", {
+                    message: "Uno de los jugadores se desconectó",
+                });
+                return;
+            }
+            // 3. Gestionar salas/canales de sockets humanos
+            if (socketWhite) {
+                socketWhite.leave(roomId);
+                socketWhite.join(newRoom.roomId);
+            }
+            if (socketBlack) {
+                socketBlack.leave(roomId);
+                socketBlack.join(newRoom.roomId);
+            }
+            // 4. Si hay un bot involucrado, configurar sus listeners en la nueva sala
+            if (isWhiteBot || isBlackBot) {
+                const humanSocket = socketWhite || socketBlack;
+                if (humanSocket) {
+                    setupRoomSocketsAndStart(io, humanSocket, newRoom);
                 }
             }
+            // 5. Destruir la sala antigua de la memoria
+            roomManager.removeRoom(roomId);
+            // 6. Notificar inicio de la revancha
+            io.to(newRoom.roomId).emit("game_started", {
+                roomId: newRoom.roomId,
+                white: {
+                    id: newRoom.playerWhite.socketId,
+                    nick: newRoom.playerWhite.nick,
+                    time: newRoom.whiteTime,
+                    isBot: newRoom.playerWhite.isBot || false,
+                },
+                black: {
+                    id: newRoom.playerBlack.socketId,
+                    nick: newRoom.playerBlack.nick,
+                    time: newRoom.blackTime,
+                    isBot: newRoom.playerBlack.isBot || false,
+                },
+                fen: newRoom.chessInstance.fen(),
+                initialTime: newRoom.initialTimeAllocated,
+            });
+            startRoomTimer(io, newRoom);
         });
         // --- 🔄 RECONEXIÓN (con ELO dinámico para recrear bots) ---
         socket.on("reconnect_to_room", async ({ roomId, nick }) => {
